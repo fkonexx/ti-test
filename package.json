@@ -1,16 +1,9 @@
 {
-  "name": "three-empires",
-  "version": "1.0.0",
-  "description": "Три Імперії — онлайн RTS для 2-3 гравців (Canvas + Socket.IO)",
+  "name": "four-empires",
+  "version": "2.0.0",
+  "description": "Чотири Імперії — онлайн RTS для 2-4 гравців: туман війни, біоми, ресурси, дерево технологій (Canvas + Socket.IO)",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.19.2",
-    "socket.io": "^4.7.5"
-  },
-  "engines": {
-    "node": ">=18"
-  }
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.19.2", "socket.io": "^4.7.5" },
+  "engines": { "node": ">=18" }
 }

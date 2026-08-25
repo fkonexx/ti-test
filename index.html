@@ -3,90 +3,71 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>Три Імперії</title>
+  <title>Чотири Імперії</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-  <!-- ЕКРАН 1: МЕНЮ -->
+  <!-- МЕНЮ -->
   <section id="menu" class="screen">
     <div class="panel">
-      <h1 class="logo">ТРИ<span>ІМПЕРІЇ</span></h1>
-      <p class="tag">Онлайн-стратегія в реальному часі · 2–3 гравці</p>
-
-      <label class="field">
-        <span>Твоє ім'я</span>
-        <input id="nameInput" maxlength="16" placeholder="Напиши ім'я" />
-      </label>
-
+      <h1 class="logo">ЧОТИРИ<span>ІМПЕРІЇ</span></h1>
+      <p class="tag">Онлайн-стратегія · 2–4 гравці · туман війни</p>
+      <label class="field"><span>Твоє ім'я</span><input id="nameInput" maxlength="16" placeholder="Напиши ім'я" /></label>
       <button id="createBtn" class="btn big">Створити кімнату</button>
-
       <div class="or">або</div>
-
-      <label class="field">
-        <span>Код кімнати</span>
-        <input id="codeInput" maxlength="6" placeholder="ABC123" autocapitalize="characters" />
-      </label>
+      <label class="field"><span>Код кімнати</span><input id="codeInput" maxlength="6" placeholder="ABC123" autocapitalize="characters" /></label>
       <button id="joinBtn" class="btn big ghost">Приєднатися</button>
-
-      <p class="hint">Один створює кімнату, решта вводять її код.</p>
+      <p class="hint">Один створює кімнату, решта вводять її код.<br>Тестовий режим — код <b>lnq247</b>.</p>
     </div>
   </section>
 
-  <!-- ЕКРАН 2: ЛОБІ -->
+  <!-- ЛОБІ -->
   <section id="lobby" class="screen hidden">
     <div class="panel">
       <p class="tag">Код кімнати — дай друзям:</p>
       <div id="roomCode" class="code">------</div>
-      <p class="tag">Гравці в кімнаті:</p>
+      <p class="tag">Гравці:</p>
       <ul id="playerList" class="players"></ul>
       <button id="startBtn" class="btn big" disabled>Почати гру</button>
-      <p id="lobbyHint" class="hint">Чекаємо на гравців… (мін. 2)</p>
+      <p id="lobbyHint" class="hint">Чекаємо гравців…</p>
     </div>
   </section>
 
-  <!-- ЕКРАН 3: ГРА -->
+  <!-- ГРА -->
   <section id="game" class="screen hidden">
     <canvas id="cv"></canvas>
 
-    <!-- Верхня панель -->
-    <div id="hud">
-      <div class="hud-item"><span id="hudColor" class="dot"></span><b id="hudGold">0</b><small>золото</small></div>
-      <div class="hud-item"><b id="hudUnits">0</b><small>військ</small></div>
-      <div class="hud-item"><b id="hudRoom">----</b><small>кімната</small></div>
+    <div id="top">
+      <div id="res"></div>
+      <button id="fsBtn" class="icon" title="На весь екран">&#9974;</button>
     </div>
 
-    <!-- Банер підказки режиму -->
     <div id="banner" class="hidden"></div>
 
-    <!-- Підменю створення юнітів -->
-    <div id="unitMenu" class="submenu hidden">
-      <button class="btn s" data-unit="soldier">Солдат<small>20</small></button>
-      <button class="btn s" data-unit="archer">Лучник<small>30</small></button>
-      <button class="btn s" data-unit="tank">Танк<small>60</small></button>
-    </div>
+    <div id="unitMenu" class="submenu hidden"></div>
+    <div id="buildMenu" class="submenu hidden"></div>
 
-    <!-- Підменю будівництва -->
-    <div id="buildMenu" class="submenu hidden">
-      <button class="btn s" data-build="mine">Шахта<small>40</small></button>
-      <button class="btn s" data-build="barracks">Казарма<small>50</small></button>
-      <button class="btn s" data-build="tower">Вежа<small>60</small></button>
-    </div>
-
-    <!-- Головні кнопки -->
-    <div id="controls">
-      <button id="armyBtn"   class="btn ctrl">Армія</button>
-      <button id="makeBtn"   class="btn ctrl">Створити</button>
-      <button id="buildBtn"  class="btn ctrl">Будувати</button>
-      <button id="attackBtn" class="btn ctrl">Атака</button>
-    </div>
-
-    <!-- Екран перемоги/поразки -->
-    <div id="overlay" class="hidden">
-      <div class="panel">
-        <h2 id="overTitle">—</h2>
-        <button id="againBtn" class="btn big">Нова гра</button>
+    <div id="techPanel" class="hidden">
+      <div class="techhead">
+        <b>Дерево розвитку</b>
+        <span>Жетони: <b id="tokTop">0</b> &#128295;</span>
+        <button id="techClose" class="icon">&#10005;</button>
       </div>
+      <div id="techList"></div>
+    </div>
+
+    <div id="controls">
+      <button id="armyBtn"   class="btn ctrl"><i>&#9876;</i>Армія</button>
+      <button id="makeBtn"   class="btn ctrl"><i>&#10133;</i>Створити</button>
+      <button id="buildBtn"  class="btn ctrl"><i>&#127959;</i>Будувати</button>
+      <button id="attackBtn" class="btn ctrl"><i>&#127919;</i>Атака</button>
+      <button id="scoutBtn"  class="btn ctrl"><i>&#128301;</i>Розвідник</button>
+      <button id="techBtn"   class="btn ctrl"><i>&#9881;</i>Розвиток</button>
+    </div>
+
+    <div id="overlay" class="hidden">
+      <div class="panel"><h2 id="overTitle">&#8212;</h2><button id="againBtn" class="btn big">Нова гра</button></div>
     </div>
   </section>
 
