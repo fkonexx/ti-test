@@ -46,6 +46,10 @@ const UNIT_INFO = [['sword', 'Мечник', 1], ['archer', 'Лучниця', 1]
 const BUILD_INFO = [['farm', 'Ферма', 1], ['lumber', 'Лісорубка', 1], ['mine', 'Шахта', 1], ['barracks', 'Казарма', 2], ['wall', 'Стіна', 2], ['tower', 'Вежа', 3], ['cannon', 'Пушка', 4], ['workshop', 'Майстерня', 4], ['landmine', 'Міна', 5]];
 const BNAME = { guild: 'Гільдія', farm: 'Ферма', lumber: 'Лісорубка', mine: 'Шахта', barracks: 'Казарма', wall: 'Стіна', tower: 'Вежа', cannon: 'Пушка', workshop: 'Майстерня', landmine: 'Міна', flag: 'Прапор' };
 const RESNAME = { wood: 'дерево', stone: 'камінь', food: 'їжа', gold: 'золото' };
+const MELEE = { sword: 1, spear: 1, assassin: 1 };
+const CUR = {};
+[['wood','wood'],['stone','stone'],['food','food'],['gold','gold'],['tokens','eng_credits'],['guild','guild_level']].forEach(([k,f]) => { const im = new Image(); im.src = 'assets/' + f + '.png'; CUR[k] = im; });
+function curIcon(key, emoji) { const im = CUR[key]; return (im && im.complete && im.naturalWidth) ? `<img class="curimg" src="${im.src}" alt="">` : emoji; }
 const SIEGE = { catapult: 1, ram: 1 };
 
 let el = {}, peaceEl = null;
@@ -54,14 +58,14 @@ window.addEventListener('DOMContentLoaded', () => {
   el = { menu: $('menu'), lobby: $('lobby'), game: $('game'), name: $('nameInput'), code: $('codeInput'), roomCode: $('roomCode'), playerList: $('playerList'), startBtn: $('startBtn'), lobbyHint: $('lobbyHint'), res: $('res'), banner: $('banner'), tokens: $('tokTop'), unitMenu: $('unitMenu'), buildMenu: $('buildMenu'), techPanel: $('techPanel'), techList: $('techList'), overlay: $('overlay'), ctxbar: $('ctxbar') };
   $('createBtn').onclick = once(() => socket.emit('createRoom', { name: el.name.value }));
   $('joinBtn').onclick = once(() => { const c = el.code.value.trim().toUpperCase(); if (c) socket.emit('joinRoom', { code: c, name: el.name.value }); });
-  el.startBtn.onclick = () => socket.emit('startGame');
+  el.startBtn.onclick = () => socket.emit('setReady');
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
-  $('attackBtn').onclick = () => { selectAll(); if (sel.units.size === 0) { banner('Немає армії для збору'); return; } attackMode = true; buildMode = null; buildable = null; closeMenus(); modes(); };
-  $('armyBtn').onclick = () => toggle('unit');
-  $('buildBtn').onclick = () => toggle('build');
+  $('attackBtn').onclick = () => { if (attackMode) { attackMode = false; modes(); return; } buildMode = null; buildable = null; closeMenus(); selectAll(); if (sel.units.size === 0) { banner('Немає армії для збору'); modes(); return; } attackMode = true; modes(); };
+  $('armyBtn').onclick = () => { attackMode = false; buildMode = null; buildable = null; toggle('unit'); modes(); };
+  $('buildBtn').onclick = () => { if (buildMode) { buildMode = null; buildable = null; modes(); return; } attackMode = false; toggle('build'); modes(); };
   $('scoutBtn').onclick = () => selectScout();
-  $('techBtn').onclick = () => { closeMenus(); el.techPanel.classList.toggle('hidden'); techSig = ''; renderTech(); };
+  $('techBtn').onclick = () => { attackMode = false; buildMode = null; buildable = null; modes(); closeMenus(); el.techPanel.classList.toggle('hidden'); techSig = ''; renderTech(); };
   $('techClose').onclick = () => el.techPanel.classList.add('hidden');
   const mb = $('modeBtn'); if (mb) mb.onclick = () => { selectMode = !selectMode; mb.classList.toggle('on', selectMode); mb.innerHTML = selectMode ? '&#9635;<small>Виділення</small>' : '&#128506;<small>Карта</small>'; banner(selectMode ? 'Режим виділення: обведи воїнів пальцем' : 'Режим карти: палець рухає карту'); };
   const zi = $('zoomIn'), zo = $('zoomOut'), mu = $('muteBtn');
@@ -78,9 +82,20 @@ socket.on('empireSwitched', d => { me.index = d.index; me.color = d.color; clear
 socket.on('fogToggled', d => { resetFog(); const b = document.getElementById('dbgFog'); if (b) b.textContent = d.on ? '🌫 Туман: УВІМК' : '🌫 Туман: ВИМК'; });
 socket.on('lobby', d => {
   me.host = (d.host === socket.id); el.roomCode.textContent = d.code; el.playerList.innerHTML = '';
-  d.players.forEach(p => { const li = document.createElement('li'); li.innerHTML = `<span class="dot ${p.color}"></span>${p.name}` + (p.id === d.host ? '<span class="badge">господар</span>' : (p.connected ? '' : '<span class="badge">офлайн</span>')); el.playerList.appendChild(li); });
-  const enough = d.players.length >= 2; el.startBtn.disabled = !(me.host && enough && !d.started); el.startBtn.style.display = me.host ? 'block' : 'none';
-  el.lobbyHint.textContent = me.host ? (enough ? 'Можна починати!' : 'Чекаємо гравців… (мін. 2, макс. 4)') : 'Чекаємо, поки господар почне гру…';
+  let myReady = false, readyN = 0;
+  d.players.forEach(p => {
+    if (p.ready) readyN++;
+    if (p.id === socket.id) myReady = !!p.ready;
+    const li = document.createElement('li');
+    const rdy = p.ready ? '<span class="badge rdy">✓ готовий</span>' : (p.connected ? '' : '<span class="badge">офлайн</span>');
+    li.innerHTML = `<span class="dot ${p.color}"></span>${p.name}` + (p.id === d.host ? '<span class="badge">господар</span>' : '') + rdy;
+    el.playerList.appendChild(li);
+  });
+  const enough = d.players.length >= 2;
+  el.startBtn.style.display = 'block'; el.startBtn.disabled = false;
+  el.startBtn.textContent = myReady ? 'Скасувати готовність' : 'Готово';
+  el.startBtn.classList.toggle('ghost', myReady);
+  el.lobbyHint.textContent = `Готові: ${readyN}/${d.players.length}` + (enough ? ' — гра почнеться, коли всі натиснуть «Готово»' : ' — потрібно мінімум 2 гравці');
 });
 socket.on('errorMsg', m => alert(m));
 socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); show('game'); resize(); ensurePeaceEl(); if (me.debug) createDbgBar(); banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
@@ -100,7 +115,7 @@ function onState(s) {
   else if (s.gridDiff) { const d = s.gridDiff; for (let k = 0; k < d.length; k += 2) { const i = d[k], v = d[k + 1]; gridArr[i] = v; if (v !== -2) { seen[i] = 1; mem[i] = v; } } }
   const alive = new Set(s.units.map(u => u.i));
   for (const id in renderU) { if (!alive.has(+id)) { const u = renderU[id]; const ci = Math.round(u.y) * W + Math.round(u.x); if (!u.s && (u.o === me.index || gridArr[ci] !== -2)) { effects.push({ x: u.x, y: u.y, t: 0, c: COL[IDX[u.o]] }); sfx('boom'); } delete renderU[id]; } }
-  for (const u of s.units) { let r = renderU[u.i]; if (!r) { r = { x: u.x, y: u.y, ang: Math.PI / 2 }; renderU[u.i] = r; } r.tx = u.x; r.ty = u.y; r.o = u.o; r.t = u.t; r.h = u.h; r.m = u.m; r.s = u.s; }
+  for (const u of s.units) { let r = renderU[u.i]; if (!r) { r = { x: u.x, y: u.y, ang: Math.PI / 2, swing: 0, healT: 0 }; renderU[u.i] = r; } r.tx = u.x; r.ty = u.y; r.o = u.o; r.t = u.t; r.h = u.h; r.m = u.m; r.s = u.s; if (u.ak) r.swing = 0.28; if (u.he) r.healT = 0.4; }
   for (const id of [...sel.units]) if (!alive.has(id)) sel.units.delete(id);
   if (sel.scout && !s.units.some(u => u.o === me.index && u.s)) sel.scout = false;
   if (sel.building != null && !s.buildings.some(b => b.i === sel.building)) sel.building = null;
@@ -112,11 +127,11 @@ function onState(s) {
 function centerOnGuild() { const g = st && st.buildings.find(b => b.o === me.index && b.t === 'guild'); if (!g) return; camX = innerWidth / 2 - (g.x * CELL + CELL / 2); camY = innerHeight / 2 - (g.y * CELL + CELL / 2); }
 function updateRes() {
   if (!st || !st.me) return; const r = st.me.res;
-  el.res.innerHTML = chip('🌲', r.wood) + chip('⛏', r.stone) + chip('🍞', r.food) + chip('💰', r.gold) + chip('🔧', r.tokens) + guildChip(st.me.guildLevel, st.me.guildProg);
+  el.res.innerHTML = chip(curIcon('wood','🌲'), r.wood) + chip(curIcon('stone','⛏'), r.stone) + chip(curIcon('food','🍞'), r.food) + chip(curIcon('gold','💰'), r.gold) + chip(curIcon('tokens','🔧'), r.tokens) + guildChip(st.me.guildLevel, st.me.guildProg);
   if (st.me.alive === false && (st.winner === null || st.winner === undefined)) banner('Вашу гільдію знищено');
 }
 function chip(ic, v) { return `<span class="chip">${ic}<b>${v}</b></span>`; }
-function guildChip(lvl, prog) { return `<span class="chip gbar" title="Рівень гільдії"><span class="gfill" style="width:${Math.round(prog * 100)}%"></span>🏛<b>${lvl}</b></span>`; }
+function guildChip(lvl, prog) { return `<span class="chip gbar" title="Рівень гільдії"><span class="gfill" style="width:${Math.round(prog * 100)}%"></span>${curIcon('guild','🏛')}<b>${lvl}</b></span>`; }
 function updateArmyBtn() { const b = document.getElementById('armyBtn'); if (!b || !st || !st.me) return; b.innerHTML = `<i>⚔</i>Армія ${st.me.army}/${st.me.cap}`; }
 function updateScoutBtn() { const b = document.getElementById('scoutBtn'); if (!b || !st || !st.me) return; const has = st.me.hasScout; b.disabled = !has; b.style.opacity = has ? '1' : '.45'; }
 
@@ -285,7 +300,7 @@ function draw() {
   requestAnimationFrame(draw); if (!canvas) return;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, innerWidth, innerHeight);
   if (!st || !biomes || !gridArr) return;
-  for (const id in renderU) { const r = renderU[id]; const dx = r.tx - r.x, dy = r.ty - r.y; r.x += dx * 0.22; r.y += dy * 0.22; const sp = Math.hypot(dx, dy); if (sp > 0.04) r.ang = lerpAng(r.ang, Math.atan2(dy, dx), 0.15); }
+  for (const id in renderU) { const r = renderU[id]; const dx = r.tx - r.x, dy = r.ty - r.y; r.x += dx * 0.22; r.y += dy * 0.22; const sp = Math.hypot(dx, dy); if (sp > 0.04) r.ang = lerpAng(r.ang, Math.atan2(dy, dx), 0.15); if (r.swing > 0) r.swing -= 1 / 60; if (r.healT > 0) r.healT -= 1 / 60; }
   darkness += ((st.night ? 0.42 : 0) - darkness) * 0.03; rain += ((st.weather === 'rain' ? 1 : 0) - rain) * 0.03;
   ctx.save(); ctx.translate(camX, camY);
   drawTiles(); drawBuildings(); drawUnits(); drawProjectiles(); drawEffects();
@@ -352,10 +367,13 @@ function drawUnits() {
     const u = renderU[id], x = u.x * CELL + CELL / 2, y = u.y * CELL + CELL / 2, c = COL[IDX[u.o]], col = IDX[u.o];
     if (u.o === me.index && sel.units.has(+id)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y + CELL * 0.12, CELL * 0.32, 0, 7); ctx.stroke(); }
     const type = u.s ? 'scout' : u.t;
-    const rot = u.ang - Math.PI / 2;   // завжди зберігаємо напрямок (без сіпання в нейтраль)
+    let rot = u.ang - Math.PI / 2;   // завжди зберігаємо напрямок (без сіпання в нейтраль)
+    if (u.swing > 0 && MELEE[type]) { const ph = (0.28 - u.swing) / 0.28; rot += Math.sin(ph * Math.PI * 3) * 0.32 * (u.swing / 0.28); }   // замах вправо-вліво
+    // аура командира / кільце священника — під юнітом
+    if (u.t === 'commander') drawAura(x, y, 7, c, false);
+    if (u.t === 'priest') drawAura(x, y, 5, '#7fe0a0', true, u.healT);
     const im = sprite(col, type);
     if (im) drawSpr(im, x, y, CELL * (USIZE[type] || 1.15), rot); else drawUnitShape(u, x, y, c, rot);
-    if (u.t === 'commander') { ctx.strokeStyle = c + '44'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.arc(x, y, CELL * 7, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
     if (u.m && !u.s) hpBar(x, y - CELL * (im ? 0.55 : 0.36), u.h, u.m, CELL * 0.46);
   }
 }
@@ -371,6 +389,20 @@ function drawUnitShape(u, x, y, c, rot) {
   else if (t === 'catapult') { const s = CELL * 0.28; ctx.fillRect(-s, -s * 0.7, s * 2, s * 1.4); ctx.fillStyle = '#0d1017'; ctx.beginPath(); ctx.arc(0, 0, s * 0.35, 0, 7); ctx.fill(); }
   else if (t === 'ram') { const s = CELL * 0.32; ctx.fillRect(-s, -s * 0.5, s * 2, s); ctx.fillStyle = '#0d1017'; ctx.fillRect(s * 0.5, -s * 0.25, s * 0.6, s * 0.5); }
   else if (t === 'commander') { ctx.beginPath(); ctx.arc(0, 0, CELL * 0.26, 0, 7); ctx.fill(); ctx.fillStyle = '#0d1017'; star(0, 0, CELL * 0.18, CELL * 0.08, 5); }
+  ctx.restore();
+}
+function drawAura(x, y, r, col, heal, healT) {
+  const t = performance.now() / 1000;
+  ctx.save();
+  const rad = CELL * r;
+  const grad = ctx.createRadialGradient(x, y, rad * 0.2, x, y, rad);
+  grad.addColorStop(0, col + '00'); grad.addColorStop(0.75, col + (heal ? '10' : '14')); grad.addColorStop(1, col + '00');
+  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
+  ctx.strokeStyle = col + '55'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.lineDashOffset = -t * 12; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+  if (heal && healT > 0) {   // яскравіший зелений пульс під час хілу
+    const p = healT / 0.4; ctx.globalAlpha = p; ctx.strokeStyle = '#8dffb0'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, rad * (0.5 + (1 - p) * 0.5), 0, 7); ctx.stroke();
+    ctx.fillStyle = '#8dffb0'; ctx.font = 'bold ' + Math.round(CELL * 0.5) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillText('+', x, y - CELL * 0.5); ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+  }
   ctx.restore();
 }
 function hpBar(cx, top, hp, max, w) { if (hp >= max) return; const ratio = Math.max(0, hp / max), h = 3; ctx.fillStyle = '#000a'; ctx.fillRect(cx - w / 2, top - h, w, h); ctx.fillStyle = ratio > .5 ? '#4ad07a' : ratio > .25 ? '#f5c542' : '#ff5a5a'; ctx.fillRect(cx - w / 2, top - h, w * ratio, h); }

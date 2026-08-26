@@ -311,7 +311,7 @@ function priestHeal(s, u, p) {
   const inCombat = (s.t - best.lastHit < 4) || (s.t - best.lastAtk < 4);
   if (!battleMed && inCombat) return;               // без бойової медицини — тільки поза боєм
   const amount = battleMed ? (inCombat ? 3 : 6) : 6;
-  best.hp = Math.min(best.maxHp, best.hp + amount); u._hcd = UNIT.priest.healCd;
+  best.hp = Math.min(best.maxHp, best.hp + amount); u._hcd = UNIT.priest.healCd; u._healT = s.t;
 }
 function avoidSteer(s, u, vx, vy) {
   // обхід союзних юнітів попереду: додаємо перпендикулярну складову (звертаємо вбік, а не штовхаємо)
@@ -374,7 +374,11 @@ function serializeEntities(s, o, full, vis) {
   for (const u of s.units) {
     if (u.scout) { units.push({ i: u.id, o: u.owner, t: 'scout', x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 1 }); continue; }
     if (u.owner !== o && !full && !seen(Math.round(u.x), Math.round(u.y))) continue;
-    units.push({ i: u.id, o: u.owner, t: u.type, x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 0 });
+    const uo = { i: u.id, o: u.owner, t: u.type, x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 0 };
+    const ud = UNIT[u.type];
+    if (ud && ud.dmg > 0 && ud.range <= 1.6 && (s.t - u.lastAtk) < 0.2) uo.ak = 1;         // замах ближнього бою
+    if (u.type === 'priest' && u._healT !== undefined && (s.t - u._healT) < 0.3) uo.he = 1;  // хіл
+    units.push(uo);
   }
   const builds = [];
   for (const b of s.buildings) {
@@ -419,7 +423,15 @@ function scoreOf(x) { return x.territory + x.kills * 6 + x.razed * 20 + x.built 
 function chooseWinner(s) { const st = buildStats(s); let best = -1, bs = -1e9; for (const x of st) { const sc = scoreOf(x); if (sc > bs) { bs = sc; best = x.index; } } return best; }
 function finishGame(room, winner) { const s = room.state; if (!s) return; s.winner = winner; if (room.loop) { clearInterval(room.loop); room.loop = null; } broadcast(room); io.to(room.code).emit('gameOver', { winner, stats: buildStats(s) }); }
 
-function broadcastLobby(room) { io.to(room.code).emit('lobby', { code: room.code, host: room.host, started: room.started, players: room.players.map(p => ({ index: p.index, color: p.color, name: p.name, connected: p.connected, id: p.id })) }); }
+function broadcastLobby(room) { io.to(room.code).emit('lobby', { code: room.code, host: room.host, started: room.started, players: room.players.map(p => ({ index: p.index, color: p.color, name: p.name, connected: p.connected, id: p.id, ready: !!p.ready })) }); }
+function maybeStart(room) {
+  if (room.started || room.debug) return;
+  if (room.players.length < 2) return;
+  if (!room.players.every(p => p.connected && p.ready)) return;
+  initGame(room); room.started = true;
+  io.to(room.code).emit('gameStarted', { W, H, biomes: room.state.biomes, spawns: room.state.spawns });
+  room.loop = setInterval(() => step(room), TICK_MS); broadcastLobby(room);
+}
 function leaveCurrentRoom(socket) {
   const code = socket.data.room; socket.data.room = null;
   if (!code) return; const room = rooms[code]; if (!room) return; socket.leave(code);
@@ -428,7 +440,7 @@ function leaveCurrentRoom(socket) {
     room.players = room.players.filter(p => p.id !== socket.id);
     room.players.forEach((p, i) => { p.index = i; p.color = COLORS[i]; });
     if (room.players.length === 0) { if (room.loop) clearInterval(room.loop); delete rooms[code]; return; }
-    if (room.host === socket.id) room.host = room.players[0].id; broadcastLobby(room);
+    if (room.host === socket.id) room.host = room.players[0].id; broadcastLobby(room); maybeStart(room);
   } else {
     const p = room.players.find(pp => pp.id === socket.id); if (p) p.connected = false;
     if (room.players.every(pp => !pp.connected)) { if (room.loop) clearInterval(room.loop); delete rooms[code]; } else broadcastLobby(room);
@@ -463,7 +475,7 @@ io.on('connection', (socket) => {
   socket.on('createRoom', ({ name } = {}) => {
     leaveCurrentRoom(socket);
     const code = newRoomCode(); const room = { code, host: socket.id, started: false, players: [], state: null, loop: null }; rooms[code] = room;
-    room.players.push({ id: socket.id, name: (name || 'Гравець 1').slice(0, 16), index: 0, color: COLORS[0], connected: true });
+    room.players.push({ id: socket.id, name: (name || 'Гравець 1').slice(0, 16), index: 0, color: COLORS[0], connected: true, ready: false });
     socket.data.room = code; socket.data.index = 0; socket.data.debug = false; socket.join(code);
     socket.emit('joined', { code, index: 0, color: COLORS[0], host: true }); broadcastLobby(room);
   });
@@ -475,9 +487,15 @@ io.on('connection', (socket) => {
     if (room.started) return socket.emit('errorMsg', 'Гра вже почалась');
     if (room.players.length >= 4) return socket.emit('errorMsg', 'Кімната повна (макс. 4)');
     const index = room.players.length;
-    room.players.push({ id: socket.id, name: (name || ('Гравець ' + (index + 1))).slice(0, 16), index, color: COLORS[index], connected: true });
+    room.players.push({ id: socket.id, name: (name || ('Гравець ' + (index + 1))).slice(0, 16), index, color: COLORS[index], connected: true, ready: false });
     socket.data.room = code; socket.data.index = index; socket.data.debug = false; socket.join(code);
     socket.emit('joined', { code, index, color: COLORS[index], host: room.host === socket.id }); broadcastLobby(room);
+  });
+  socket.on('setReady', ({ ready } = {}) => {
+    const room = rooms[socket.data.room]; if (!room || room.started) return;
+    const p = room.players.find(pp => pp.id === socket.id); if (!p) return;
+    p.ready = (ready === undefined) ? !p.ready : !!ready;
+    broadcastLobby(room); maybeStart(room);
   });
   socket.on('startGame', () => {
     const room = rooms[socket.data.room];
