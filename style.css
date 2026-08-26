@@ -101,3 +101,23 @@ input:focus{border-color:var(--accent);}
 /* зум */
 #zoom{position:fixed;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:6px;z-index:5;}
 #zoom .icon{width:44px;height:44px;font-size:24px;font-weight:700;}
+
+/* ---- v5: перемикач режиму керування ---- */
+#modeBtn.sidebtn{position:fixed;left:10px;bottom:calc(78px + env(safe-area-inset-bottom));z-index:5;
+  width:56px;height:56px;border-radius:14px;border:2px solid var(--line);background:var(--panel2);
+  color:var(--text);font-size:22px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:1px;cursor:pointer;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.4);}
+#modeBtn.sidebtn small{font-size:9px;font-weight:700;opacity:.85;}
+#modeBtn.sidebtn.on{background:var(--accent);color:#0d1017;border-color:var(--accent);}
+
+/* ---- v5: контекстна панель дій ---- */
+#ctxbar{position:fixed;left:8px;right:8px;bottom:calc(74px + env(safe-area-inset-bottom));z-index:6;
+  display:flex;flex-wrap:wrap;gap:6px;justify-content:center;pointer-events:none;}
+#ctxbar .ctxb{pointer-events:auto;padding:9px 14px;border-radius:11px;border:2px solid var(--line);
+  background:var(--panel);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;
+  box-shadow:0 4px 14px rgba(0,0,0,.45);}
+#ctxbar .ctxb.hot{background:#f5c542;color:#0d1017;border-color:#f5c542;}
+#ctxbar .ctxb.danger{background:#3a1417;color:#ff8a8a;border-color:#ff5a5a;}
+
+/* ---- v5: кнопка купівлі прапора в меню будівель ---- */
+.buildMenu .flagbuy,.submenu .flagbuy{border-color:#f5c542 !important;color:#ffdf5a;}
