@@ -352,8 +352,7 @@ function drawUnits() {
     const u = renderU[id], x = u.x * CELL + CELL / 2, y = u.y * CELL + CELL / 2, c = COL[IDX[u.o]], col = IDX[u.o];
     if (u.o === me.index && sel.units.has(+id)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y + CELL * 0.12, CELL * 0.32, 0, 7); ctx.stroke(); }
     const type = u.s ? 'scout' : u.t;
-    const moving = Math.hypot(u.tx - u.x, u.ty - u.y) > 0.04;
-    const rot = moving ? u.ang - Math.PI / 2 : 0;
+    const rot = u.ang - Math.PI / 2;   // завжди зберігаємо напрямок (без сіпання в нейтраль)
     const im = sprite(col, type);
     if (im) drawSpr(im, x, y, CELL * (USIZE[type] || 1.15), rot); else drawUnitShape(u, x, y, c, rot);
     if (u.t === 'commander') { ctx.strokeStyle = c + '44'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.arc(x, y, CELL * 7, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
@@ -392,10 +391,11 @@ function createDbgBar() {
   if (document.getElementById('dbgbar')) return;
   const bar = document.createElement('div'); bar.id = 'dbgbar';
   bar.style.cssText = 'position:fixed;top:130px;left:50%;transform:translateX(-50%);z-index:7;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:96%;';
-  bar.innerHTML = '<button id="dbgSwitch" class="dbgbtn"></button><button id="dbgFog" class="dbgbtn">🌫 Туман: ВИМК</button><button id="dbgEnd" class="dbgbtn">🏁 Завершити</button>';
+  bar.innerHTML = '<button id="dbgSwitch" class="dbgbtn"></button><button id="dbgRes" class="dbgbtn">💰 +Ресурси</button><button id="dbgFog" class="dbgbtn">🌫 Туман: ВИМК</button><button id="dbgEnd" class="dbgbtn">🏁 Завершити</button>';
   document.getElementById('game').appendChild(bar);
   document.getElementById('dbgSwitch').onclick = () => socket.emit('switchEmpire');
   document.getElementById('dbgFog').onclick = () => socket.emit('toggleFog');
+  document.getElementById('dbgRes').onclick = () => { socket.emit('debugGrant'); banner('Дебаг: +1000 ресурсів, +50 жетонів'); };
   document.getElementById('dbgEnd').onclick = () => socket.emit('debugEnd');
   updateDbg();
 }

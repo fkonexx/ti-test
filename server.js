@@ -34,7 +34,7 @@ const REPAIR_DELAY = 60, REPAIR_PER_SEC = 10 / 60;   // +10 HP/хв після 6
 const FLAG = { hp: 180, vision: 5, slots: 2, radius: 3, cost: { wood: 100, stone: 100, gold: 250 } };
 const MINE = { hp: 30, arm: 5, trigger: 0.8, boom: 2.0, max: 15, spacing: 2, heavy: 130 };
 const MINE_LETHAL = new Set(['sword', 'archer', 'mage', 'spear', 'assassin', 'priest']);
-const SCOUT_VISION = [0, 10, 12, 14, 16, 18];
+const SCOUT_VISION = [0, 7, 8, 9, 11, 13];
 const SCOUT_SPEED = [0, 3.6, 3.9, 4.2, 4.5, 4.8];
 const FLAG_CAP = [0, 0, 0, 1, 2, 3];               // за рівнем scouting
 const MINE_DETECT = [0, 0, 0, 2.5, 4, 6];          // за рівнем scouting
@@ -313,11 +313,34 @@ function priestHeal(s, u, p) {
   const amount = battleMed ? (inCombat ? 3 : 6) : 6;
   best.hp = Math.min(best.maxHp, best.hp + amount); u._hcd = UNIT.priest.healCd;
 }
+function avoidSteer(s, u, vx, vy) {
+  // обхід союзних юнітів попереду: додаємо перпендикулярну складову (звертаємо вбік, а не штовхаємо)
+  const LOOK = 2.2; const px = -vy, py = vx;            // перпендикуляр до напрямку руху
+  let sx = 0, sy = 0, hit = false;
+  for (const o of s.units) {
+    if (o === u || o.owner !== u.owner || o.scout || o.hp <= 0) continue;
+    const dx = o.x - u.x, dy = o.y - u.y, d = Math.hypot(dx, dy);
+    if (d > LOOK || d < 0.0001) continue;
+    if (dx * vx + dy * vy <= 0.1) continue;             // лише ті, хто попереду
+    hit = true; const w = (LOOK - d) / LOOK;            // 0..1, більше чим ближче
+    let side = dx * px + dy * py;                       // з якого боку перешкода
+    let sgn = side >= 0 ? -1 : 1;                        // звертаємо в протилежний бік
+    if (Math.abs(side) < 0.05) sgn = (u.id % 2 === 0) ? 1 : -1;   // точно по лінії — детермінований бік
+    sx += px * sgn * w; sy += py * sgn * w;
+  }
+  if (!hit) return [vx, vy];
+  let nx = vx + sx * 1.8, ny = vy + sy * 1.8; const m = Math.hypot(nx, ny);
+  if (m < 0.0001) return [vx, vy];
+  return [nx / m, ny / m];
+}
 function moveUnit(s, u, dest, speed, wallCell) {
   if (!dest) return; const dx = dest[0] - u.x, dy = dest[1] - u.y, d = Math.hypot(dx, dy); if (d <= 0.01) return;
-  const step = Math.min(1, speed * DT / d); let nx = clamp(u.x + dx * step, 0, W - 1), ny = clamp(u.y + dy * step, 0, H - 1);
+  let dirx = dx / d, diry = dy / d;
+  if (!u.scout) { const st = avoidSteer(s, u, dirx, diry); dirx = st[0]; diry = st[1]; }
+  const dstep = Math.min(d, speed * DT);
+  let nx = clamp(u.x + dirx * dstep, 0, W - 1), ny = clamp(u.y + diry * dstep, 0, H - 1);
   const cell = Math.round(ny) * W + Math.round(nx); const wo = wallCell.get(cell);
-  if (wo != null && wo !== u.owner) { const cell2 = Math.round(u.y) * W + Math.round(nx); const cell3 = Math.round(ny) * W + Math.round(u.x); // спробувати ковзання вздовж стіни
+  if (wo != null && wo !== u.owner) { const cell2 = Math.round(u.y) * W + Math.round(nx); const cell3 = Math.round(ny) * W + Math.round(u.x); // ковзання вздовж стіни
     if (!(wallCell.get(cell2) != null && wallCell.get(cell2) !== u.owner)) ny = u.y; else if (!(wallCell.get(cell3) != null && wallCell.get(cell3) !== u.owner)) nx = u.x; else return; }
   u.x = nx; u.y = ny;
 }
@@ -467,6 +490,7 @@ io.on('connection', (socket) => {
   socket.on('switchEmpire', () => { if (!socket.data.debug) return; const room = rooms[socket.data.room]; if (!room) return; socket.data.index = (socket.data.index + 1) % room.players.length; room.lastGrid = {}; socket.emit('empireSwitched', { index: socket.data.index, color: COLORS[socket.data.index] }); });
   socket.on('toggleFog', () => { if (!socket.data.debug) return; const room = rooms[socket.data.room]; if (!room) return; room.debugFog = !room.debugFog; room.lastGrid = {}; socket.emit('fogToggled', { on: room.debugFog }); });
   socket.on('debugEnd', () => { if (!socket.data.debug) return; const room = rooms[socket.data.room]; if (!room || !room.state) return; finishGame(room, chooseWinner(room.state)); });
+  socket.on('debugGrant', () => { if (!socket.data.debug) return; const room = rooms[socket.data.room]; if (!room || !room.state) return; const p = playerOf(room.state, socket.data.index); if (!p) return; p.res.wood += 1000; p.res.stone += 1000; p.res.food += 1000; p.res.gold += 1000; p.res.tokens += 50; });
 
   socket.on('command', (cmd) => {
     const room = rooms[socket.data.room]; if (!room || !room.started || !room.state || room.state.winner !== null) return;
