@@ -74,3 +74,30 @@ input:focus{border-color:var(--accent);}
 
 #overlay{position:fixed;inset:0;background:#0d1017cc;display:flex;align-items:center;justify-content:center;z-index:10;backdrop-filter:blur(4px);}
 #overTitle{font-size:28px;margin:0 0 18px;}
+
+/* дебаг-панель */
+.dbgbtn{border:none;border-radius:16px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;
+  background:#1e2534;color:var(--text);border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.4);}
+.dbgbtn:active{transform:scale(.96);}
+
+/* ендскрін */
+.endpanel{max-width:520px;max-height:88vh;overflow-y:auto;text-align:left;}
+.endtitle{font-size:24px;margin:0 0 14px;text-align:center;}
+.statwrap{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;}
+.statcard{background:var(--panel2);border:1px solid var(--line);border-left-width:5px;border-radius:12px;padding:10px 12px;}
+.sc-h{display:flex;align-items:center;gap:8px;font-size:16px;margin-bottom:8px;}
+.sc-h .place{font-size:13px;color:var(--muted);font-weight:700;}
+.sc-h .mut{color:var(--muted);}
+.sc-g{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px;color:var(--muted);}
+.sc-g span{display:flex;justify-content:space-between;border-bottom:1px dotted var(--line);padding:2px 0;}
+.sc-g b{color:var(--text);font-variant-numeric:tabular-nums;}
+
+/* смужка рівня гільдії в HUD */
+.chip.gbar{position:relative;overflow:hidden;}
+.chip.gbar .gfill{position:absolute;left:0;top:0;bottom:0;background:rgba(245,197,66,.28);z-index:0;}
+.chip.gbar>*{position:relative;z-index:1;}
+.chip.gbar b{position:relative;z-index:1;}
+
+/* зум */
+#zoom{position:fixed;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:6px;z-index:5;}
+#zoom .icon{width:44px;height:44px;font-size:24px;font-weight:700;}

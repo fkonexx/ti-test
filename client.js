@@ -1,346 +1,374 @@
 // ============================================================
-//  ЧОТИРИ ІМПЕРІЇ (v2) — клієнт
+//  ЧОТИРИ ІМПЕРІЇ (v4) — клієнт
 // ============================================================
 const socket = io();
 
 const me = { index: -1, color: null, host: false, id: null, debug: false };
-let W = 40, H = 40, biomes = null;
-let st = null;                       // останній зріз стану (моя перспектива)
-let CELL = 30;
+let W = 60, H = 60, biomes = null;
+let st = null;
+let CELL = 32;
 let camX = 0, camY = 0, camInit = false;
 let canvas, ctx, DPR = 1;
 
-const renderU = {};                  // згладжені позиції юнітів
-let effects = [];
-
+let gridArr = null, seen = null, mem = null;
+const renderU = {};
+let effects = [], projectiles = [];
+let darkness = 0, rain = 0;                 // згладжені день/ніч і дощ
 const sel = { units: new Set(), building: null, scout: false };
-let buildMode = null, attackMode = false;
-let buildable = null;                // Set клітинок для підсвітки в режимі будівництва
+let buildMode = null, attackMode = false, buildable = null;
+let muted = false;
 
 const COL = { red: '#ff5a5a', blue: '#5a8cff', green: '#4ad07a', yellow: '#f5c542' };
-const COL_SOFT = { red: 'rgba(255,90,90,.28)', blue: 'rgba(90,140,255,.28)', green: 'rgba(74,208,122,.28)', yellow: 'rgba(245,197,66,.28)' };
+const COL_SOFT = { red: 'rgba(255,90,90,.30)', blue: 'rgba(90,140,255,.30)', green: 'rgba(74,208,122,.30)', yellow: 'rgba(245,197,66,.30)' };
+const COL_FOG = { red: 'rgba(255,90,90,.12)', blue: 'rgba(90,140,255,.12)', green: 'rgba(74,208,122,.12)', yellow: 'rgba(245,197,66,.12)' };
 const IDX = ['red', 'blue', 'green', 'yellow'];
-const BIOME_COL = ['#565c6b', '#3f5e3a', '#26402c'];    // гори / рівнина / ліс
+const BIOME_COL = ['#5b616f', '#456a3f', '#284a31'];
+const BIOME_DIM = ['#2c2f37', '#26361f', '#152417'];
 const CNAME = { red: 'червона', blue: 'синя', green: 'зелена', yellow: 'жовта' };
 
+// ассети (лише червона команда; інші — фігурами)
+const SPRITE_FILE = { guild: 'red_guild', mine: 'red_mine', lumber: 'red_wood', farm: 'red_farm', barracks: 'red_barn', tower: 'red_tower', cannon: 'red_canon', landmine: 'red_explosive', sword: 'red_sword', archer: 'red_archer', mage: 'red_mage', assassin: 'red_assassin', catapult: 'red_catapult', ram: 'red_ram', spear: 'red_spear', scout: 'red_peecker' };
+const SPR = {};
+for (const k in SPRITE_FILE) { const im = new Image(); im.src = 'assets/' + SPRITE_FILE[k] + '.png'; SPR[k] = im; }
+
+const COST = { mine: { wood: 30, stone: 10, gold: 10 }, lumber: { wood: 10, stone: 20, gold: 10 }, farm: { wood: 20, stone: 10, gold: 10 }, barracks: { wood: 40, stone: 40, gold: 20 }, tower: { wood: 30, stone: 60, gold: 30 }, cannon: { wood: 40, stone: 90, gold: 50 }, landmine: { wood: 10, stone: 30, gold: 10 } };
+const UCOST = { sword: { food: 15, gold: 10 }, archer: { food: 12, gold: 14 }, mage: { food: 10, gold: 22 }, spear: { food: 15, gold: 12 }, assassin: { food: 14, gold: 20 }, catapult: { food: 20, gold: 35 }, ram: { food: 22, gold: 30 } };
 const TECH = [
-  ['construction', 'Будівництво', 'відкриває споруди'],
-  ['army', 'Армія', 'відкриває воїнів'],
-  ['influence', 'Вплив', 'ширша зона будівництва'],
-  ['mining', 'Шахтарство', '+ камінь із шахт'],
-  ['lumber', 'Лісорубство', '+ дерево з лісорубок'],
-  ['farming', 'Фермерство', '+ їжа з ферм'],
-  ['warfare', 'Військова справа', '+ шкода й HP воїнів'],
-  ['defense', 'Захист', '+ HP споруд'],
-  ['scouting', 'Розвідка', 'швидший розвідник, більший зір'],
-  ['engineering', 'Інженерія', 'швидші жетони'],
+  ['construction', 'Будівництво', 'відкриває споруди'], ['army', 'Армія', 'відкриває воїнів'],
+  ['influence', 'Вплив', 'ширша зона від гільдії'], ['mining', 'Шахтарство', '+ камінь'],
+  ['lumber', 'Лісорубство', '+ дерево'], ['farming', 'Фермерство', '+ їжа'],
+  ['warfare', 'Військова справа', '+ шкода й HP воїнів'], ['defense', 'Захист', '+ HP споруд'],
+  ['scouting', 'Розвідка', 'швидший розвідник, зір'], ['engineering', 'Інженерія', 'швидші жетони'],
 ];
-const UNIT_INFO = [
-  ['sword', 'Мечник', 1, 'їжа 15 · золото 10'],
-  ['archer', 'Лучниця', 1, 'їжа 12 · золото 14'],
-  ['mage', 'Маг', 2, 'їжа 10 · золото 22'],
-  ['assassin', 'Ассасін', 3, 'їжа 14 · золото 20'],
-  ['catapult', 'Катапульта', 4, 'їжа 20 · золото 35'],
-  ['ram', 'Таран', 5, 'їжа 22 · золото 30'],
-];
-const BUILD_INFO = [
-  ['mine', 'Шахта', 1, 'камінь'],
-  ['lumber', 'Лісорубка', 1, 'дерево'],
-  ['farm', 'Ферма', 1, 'їжа'],
-  ['barracks', 'Казарма', 2, 'воїни'],
-  ['tower', 'Вежа', 3, 'захист'],
-  ['cannon', 'Пушка', 4, 'захист+'],
-  ['landmine', 'Міна', 5, 'пастка'],
-];
+const UNIT_INFO = [['sword', 'Мечник', 1], ['archer', 'Лучниця', 1], ['mage', 'Маг', 2], ['spear', 'Списоносець', 3], ['assassin', 'Ассасін', 3], ['catapult', 'Катапульта', 4], ['ram', 'Таран', 5]];
+const BUILD_INFO = [['mine', 'Шахта', 1], ['lumber', 'Лісорубка', 1], ['farm', 'Ферма', 1], ['barracks', 'Казарма', 2], ['tower', 'Вежа', 3], ['cannon', 'Пушка', 4], ['landmine', 'Міна', 5]];
 const BNAME = { guild: 'Гільдія', mine: 'Шахта', lumber: 'Лісорубка', farm: 'Ферма', barracks: 'Казарма', tower: 'Вежа', cannon: 'Пушка', landmine: 'Міна' };
 
 let el = {};
 window.addEventListener('DOMContentLoaded', () => {
   const $ = id => document.getElementById(id);
-  el = {
-    menu: $('menu'), lobby: $('lobby'), game: $('game'),
-    name: $('nameInput'), code: $('codeInput'),
-    roomCode: $('roomCode'), playerList: $('playerList'), startBtn: $('startBtn'), lobbyHint: $('lobbyHint'),
-    res: $('res'), banner: $('banner'), tokens: $('tokTop'),
-    unitMenu: $('unitMenu'), buildMenu: $('buildMenu'), techPanel: $('techPanel'), techList: $('techList'),
-    overlay: $('overlay'), overTitle: $('overTitle'),
-  };
-  $('createBtn').onclick = () => socket.emit('createRoom', { name: el.name.value });
-  $('joinBtn').onclick = () => { const c = el.code.value.trim().toUpperCase(); if (c) socket.emit('joinRoom', { code: c, name: el.name.value }); };
+  el = { menu: $('menu'), lobby: $('lobby'), game: $('game'), name: $('nameInput'), code: $('codeInput'), roomCode: $('roomCode'), playerList: $('playerList'), startBtn: $('startBtn'), lobbyHint: $('lobbyHint'), res: $('res'), banner: $('banner'), tokens: $('tokTop'), unitMenu: $('unitMenu'), buildMenu: $('buildMenu'), techPanel: $('techPanel'), techList: $('techList'), overlay: $('overlay') };
+  $('createBtn').onclick = once(() => socket.emit('createRoom', { name: el.name.value }));
+  $('joinBtn').onclick = once(() => { const c = el.code.value.trim().toUpperCase(); if (c) socket.emit('joinRoom', { code: c, name: el.name.value }); });
   el.startBtn.onclick = () => socket.emit('startGame');
-  $('againBtn').onclick = () => location.reload();
   $('fsBtn').onclick = toggleFullscreen;
-
   $('armyBtn').onclick = () => { selectAll(); flash($('armyBtn')); };
   $('makeBtn').onclick = () => toggle('unit');
   $('buildBtn').onclick = () => toggle('build');
   $('attackBtn').onclick = () => { attackMode = !attackMode; buildMode = null; buildable = null; closeMenus(); if (attackMode && sel.units.size === 0) selectAll(); modes(); };
   $('scoutBtn').onclick = () => { selectScout(); flash($('scoutBtn')); };
-  $('techBtn').onclick = () => { closeMenus(); el.techPanel.classList.toggle('hidden'); renderTech(); };
+  $('techBtn').onclick = () => { closeMenus(); el.techPanel.classList.toggle('hidden'); techSig = ''; renderTech(); };
   $('techClose').onclick = () => el.techPanel.classList.add('hidden');
-
-  el.unitMenu.querySelectorAll('button').forEach(b => b.onclick = () => produce(b.dataset.u));
-  el.buildMenu.querySelectorAll('button').forEach(b => b.onclick = () => { buildMode = b.dataset.b; attackMode = false; closeMenus(); computeBuildable(); modes(); });
-
   setupCanvas();
 });
+function once(fn) { let u = false; return () => { if (u) return; u = true; fn(); setTimeout(() => u = false, 1200); }; }
 
 // ---------- сокет ----------
 socket.on('connect', () => { me.id = socket.id; });
 socket.on('joined', d => { me.index = d.index; me.color = d.color; me.host = d.host; if (d.debug) { me.debug = true; return; } show('lobby'); });
-socket.on('empireSwitched', d => { me.index = d.index; me.color = d.color; sel.units.clear(); sel.building = null; sel.scout = false; buildMode = null; attackMode = false; buildable = null; modes(); camInit = false; updateRes(); updateDbg(); });
+socket.on('empireSwitched', d => { me.index = d.index; me.color = d.color; clearSel(); resetFog(); camInit = false; techSig = ''; updateRes(); updateDbg(); });
+socket.on('fogToggled', d => { resetFog(); const b = document.getElementById('dbgFog'); if (b) b.textContent = d.on ? '🌫 Туман: УВІМК' : '🌫 Туман: ВИМК'; });
 socket.on('lobby', d => {
-  me.host = (d.host === socket.id);
-  el.roomCode.textContent = d.code;
-  el.playerList.innerHTML = '';
-  d.players.forEach(p => {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="dot ${p.color}"></span>${p.name}` + (p.id === d.host ? '<span class="badge">господар</span>' : (p.connected ? '' : '<span class="badge">офлайн</span>'));
-    el.playerList.appendChild(li);
-  });
-  const enough = d.players.length >= 2;
-  el.startBtn.disabled = !(me.host && enough && !d.started);
-  el.startBtn.style.display = me.host ? 'block' : 'none';
+  me.host = (d.host === socket.id); el.roomCode.textContent = d.code; el.playerList.innerHTML = '';
+  d.players.forEach(p => { const li = document.createElement('li'); li.innerHTML = `<span class="dot ${p.color}"></span>${p.name}` + (p.id === d.host ? '<span class="badge">господар</span>' : (p.connected ? '' : '<span class="badge">офлайн</span>')); el.playerList.appendChild(li); });
+  const enough = d.players.length >= 2; el.startBtn.disabled = !(me.host && enough && !d.started); el.startBtn.style.display = me.host ? 'block' : 'none';
   el.lobbyHint.textContent = me.host ? (enough ? 'Можна починати!' : 'Чекаємо гравців… (мін. 2, макс. 4)') : 'Чекаємо, поки господар почне гру…';
 });
 socket.on('errorMsg', m => alert(m));
-socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; show('game'); resize(); if (me.debug) createDbg(); requestAnimationFrame(draw); });
+socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); show('game'); resize(); if (me.debug) createDbgBar(); banner('1 палець — виділення · 2 пальці — рух і зум'); requestAnimationFrame(draw); });
 socket.on('state', s => onState(s));
+socket.on('gameOver', d => showEnd(d));
 
-// ---------- екрани ----------
 function show(name) { el.menu.classList.add('hidden'); el.lobby.classList.add('hidden'); el.game.classList.add('hidden'); el[name].classList.remove('hidden'); }
+function clearSel() { sel.units.clear(); sel.building = null; sel.scout = false; buildMode = null; attackMode = false; buildable = null; modes(); }
+function resetFog() { if (gridArr) { gridArr.fill(-2); seen.fill(0); mem.fill(-1); } }
 
 // ---------- стан ----------
 function onState(s) {
   st = s;
+  if (s.gridFull) { gridArr = s.gridFull; for (let i = 0; i < gridArr.length; i++) if (gridArr[i] !== -2) { seen[i] = 1; mem[i] = gridArr[i]; } }
+  else if (s.gridDiff) { const d = s.gridDiff; for (let k = 0; k < d.length; k += 2) { const i = d[k], v = d[k + 1]; gridArr[i] = v; if (v !== -2) { seen[i] = 1; mem[i] = v; } } }
+
   const alive = new Set(s.units.map(u => u.i));
-  for (const id in renderU) { if (!alive.has(+id)) { const u = renderU[id]; if (!u.s) effects.push({ x: u.x, y: u.y, t: 0, c: COL[IDX[u.o]] }); delete renderU[id]; } }
+  for (const id in renderU) { if (!alive.has(+id)) { const u = renderU[id]; const ci = Math.round(u.y) * W + Math.round(u.x); if (!u.s && (u.o === me.index || gridArr[ci] !== -2)) { effects.push({ x: u.x, y: u.y, t: 0, c: COL[IDX[u.o]] }); sfx('boom'); } delete renderU[id]; } }
   for (const u of s.units) { let r = renderU[u.i]; if (!r) { r = { x: u.x, y: u.y }; renderU[u.i] = r; } r.tx = u.x; r.ty = u.y; r.o = u.o; r.t = u.t; r.h = u.h; r.m = u.m; r.s = u.s; }
   for (const id of [...sel.units]) if (!alive.has(id)) sel.units.delete(id);
+
+  if (s.shots) for (const sh of s.shots) { projectiles.push({ x: sh.x, y: sh.y, tx: sh.tx, ty: sh.ty, k: sh.k, t: 0, dur: sh.k === 'ball' ? 0.35 : 0.2 }); sfxShoot(); }
+
   if (!camInit) { centerOnGuild(); camInit = true; }
-  updateRes();
+  updateRes(); updateArmyBtn();
   if (el.techPanel && !el.techPanel.classList.contains('hidden')) renderTech();
-  if (s.winner !== null && !me.debug) showWin(s.winner);
 }
-function centerOnGuild() {
-  if (!st) return;
-  const g = st.buildings.find(b => b.o === me.index && b.t === 'guild');
-  if (!g) return;
-  camX = window.innerWidth / 2 - (g.x * CELL + CELL / 2);
-  camY = window.innerHeight / 2 - (g.y * CELL + CELL / 2);
-}
+function centerOnGuild() { const g = st && st.buildings.find(b => b.o === me.index && b.t === 'guild'); if (!g) return; camX = innerWidth / 2 - (g.x * CELL + CELL / 2); camY = innerHeight / 2 - (g.y * CELL + CELL / 2); }
 function updateRes() {
-  if (!st || !st.me) return;
-  const r = st.me.res;
-  el.res.innerHTML =
-    chip('🌲', r.wood) + chip('⛏', r.stone) + chip('🍞', r.food) + chip('💰', r.gold) +
-    chip('🔧', r.tokens) + chip('🏛', 'ур.' + st.me.guildLevel);
-  if (st.me.alive === false && st.winner === null) banner('Вашу гільдію знищено');
+  if (!st || !st.me) return; const r = st.me.res;
+  el.res.innerHTML = chip('🌲', r.wood) + chip('⛏', r.stone) + chip('🍞', r.food) + chip('💰', r.gold) + chip('🔧', r.tokens) + guildChip(st.me.guildLevel, st.me.guildProg);
+  if (st.me.alive === false && (st.winner === null || st.winner === undefined)) banner('Вашу гільдію знищено');
 }
 function chip(ic, v) { return `<span class="chip">${ic}<b>${v}</b></span>`; }
+function guildChip(lvl, prog) { return `<span class="chip gbar" title="Рівень гільдії"><span class="gfill" style="width:${Math.round(prog * 100)}%"></span>🏛<b>${lvl}</b></span>`; }
+function updateArmyBtn() {
+  const b = document.getElementById('armyBtn'); if (!b || !st || !st.me) return;
+  b.innerHTML = `<i>⚔</i>Армія ${st.me.army}/${st.me.cap}`;
+}
 
 // ---------- керування ----------
 function myUnits() { return st ? st.units.filter(u => u.o === me.index && !u.s) : []; }
-function selectAll() { sel.units = new Set(myUnits().map(u => u.i)); sel.building = null; sel.scout = false; }
-function selectScout() { const sc = st && st.units.find(u => u.o === me.index && u.s); if (sc) { sel.units = new Set([sc.i]); sel.scout = true; sel.building = null; banner('Розвідник обрано — тапни, куди йти'); } }
-function guildId() { const g = st && st.buildings.find(b => b.o === me.index && b.t === 'guild'); return g ? g.i : null; }
+function selectAll() { sel.units = new Set(myUnits().map(u => u.i)); sel.building = null; sel.scout = false; if (st && st.me && st.me.cap === 0) banner('Немає казарм — побудуй казарму, щоб мати армію'); }
+function selectScout() { const sc = st && st.units.find(u => u.o === me.index && u.s); if (sc) { sel.units = new Set([sc.i]); sel.scout = true; sel.building = null; banner('Розвідник обрано — тапни, куди йти'); } else banner('Розвідника немає'); }
+function nearestBarracks(col, row) { const bs = st ? st.buildings.filter(b => b.o === me.index && b.t === 'barracks') : []; if (!bs.length) return null; if (col == null) return bs[0]; let best = bs[0], bd = 1e9; for (const b of bs) { const d = Math.abs(b.x - col) + Math.abs(b.y - row); if (d < bd) { bd = d; best = b; } } return best; }
 function produce(type) {
-  const b = (sel.building != null) ? sel.building : guildId();
-  if (b == null) return;
-  socket.emit('command', { type: 'produce', building: b, unit: type });
+  if (!st || !st.me) return;
+  if (st.me.tech.army < ({ sword: 1, archer: 1, mage: 2, spear: 3, assassin: 3, catapult: 4, ram: 5 })[type]) { banner('Спершу прокачай «Армію»'); return; }
+  const bar = (sel.building != null) ? st.buildings.find(b => b.i === sel.building && b.t === 'barracks') : nearestBarracks();
+  if (!bar) { banner('Потрібна казарма'); return; }
+  if (st.me.army >= st.me.cap) { banner('Ліміт армії — побудуй ще казарму'); return; }
+  const c = UCOST[type]; if (st.me.res.food < c.food || st.me.res.gold < c.gold) { banner('Недостатньо їжі/золота'); return; }
+  socket.emit('command', { type: 'produce', building: bar.i, unit: type }); sfx('build');
 }
 function sendMove(col, row) { if (sel.units.size) socket.emit('command', { type: 'move', ids: [...sel.units], x: col, y: row }); }
 
-function toggle(which) {
-  const u = which === 'unit';
-  const showU = u && el.unitMenu.classList.contains('hidden');
-  const showB = !u && el.buildMenu.classList.contains('hidden');
-  closeMenus();
-  if (showU) { refreshUnitMenu(); el.unitMenu.classList.remove('hidden'); }
-  if (showB) { refreshBuildMenu(); el.buildMenu.classList.remove('hidden'); }
-}
+function toggle(which) { const u = which === 'unit'; const su = u && el.unitMenu.classList.contains('hidden'); const sb = !u && el.buildMenu.classList.contains('hidden'); closeMenus(); if (su) { refreshUnitMenu(); el.unitMenu.classList.remove('hidden'); } if (sb) { refreshBuildMenu(); el.buildMenu.classList.remove('hidden'); } }
 function closeMenus() { el.unitMenu.classList.add('hidden'); el.buildMenu.classList.add('hidden'); el.techPanel && el.techPanel.classList.add('hidden'); }
+function costStr(c) { const p = []; if (c.wood) p.push('🌲' + c.wood); if (c.stone) p.push('⛏' + c.stone); if (c.food) p.push('🍞' + c.food); if (c.gold) p.push('💰' + c.gold); return p.join(' '); }
+function canAfford(c) { const r = st && st.me ? st.me.res : {}; return (r.wood || 0) >= (c.wood || 0) && (r.stone || 0) >= (c.stone || 0) && (r.food || 0) >= (c.food || 0) && (r.gold || 0) >= (c.gold || 0); }
 function refreshUnitMenu() {
   const lvl = st && st.me ? st.me.tech.army : 0;
-  el.unitMenu.innerHTML = UNIT_INFO.map(([k, n, req, c]) =>
-    `<button class="btn s" data-u="${k}" ${lvl < req ? 'disabled' : ''}>${n}<small>${lvl < req ? '🔒 Армія ' + req : c}</small></button>`).join('');
+  el.unitMenu.innerHTML = UNIT_INFO.map(([k, n, req]) => { const c = UCOST[k]; const locked = lvl < req; const poor = !locked && !canAfford(c); return `<button class="btn s" data-u="${k}" ${locked || poor ? 'disabled' : ''}>${n}<small>${locked ? '🔒 Армія ' + req : costStr(c)}</small></button>`; }).join('');
   el.unitMenu.querySelectorAll('button').forEach(b => b.onclick = () => produce(b.dataset.u));
 }
 function refreshBuildMenu() {
   const lvl = st && st.me ? st.me.tech.construction : 0;
-  el.buildMenu.innerHTML = BUILD_INFO.map(([k, n, req, c]) =>
-    `<button class="btn s" data-b="${k}" ${lvl < req ? 'disabled' : ''}>${n}<small>${lvl < req ? '🔒 Будів. ' + req : c}</small></button>`).join('');
+  el.buildMenu.innerHTML = BUILD_INFO.map(([k, n, req]) => { const c = COST[k]; const locked = lvl < req; const poor = !locked && !canAfford(c); return `<button class="btn s" data-b="${k}" ${locked ? 'disabled' : ''} style="${poor ? 'opacity:.55' : ''}">${n}<small>${locked ? '🔒 Будів. ' + req : costStr(c)}</small></button>`; }).join('');
   el.buildMenu.querySelectorAll('button').forEach(b => b.onclick = () => { buildMode = b.dataset.b; attackMode = false; closeMenus(); computeBuildable(); modes(); });
 }
 function modes() {
   document.getElementById('attackBtn').classList.toggle('on', attackMode);
   document.getElementById('buildBtn').classList.toggle('on', !!buildMode);
   if (attackMode) banner('Тапни ціль — військо піде в атаку');
-  else if (buildMode) banner('Тапни підсвічену клітинку, щоб побудувати «' + BNAME[buildMode] + '»');
+  else if (buildMode) banner('Тапни підсвічену зону біля гільдії, щоб побудувати «' + BNAME[buildMode] + '»');
   else hideBanner();
 }
 function computeBuildable() {
-  buildable = new Set();
-  if (!st) return;
-  const rad = 2 + (st.me ? st.me.tech.influence : 0);
-  for (let i = 0; i < W * H; i++) if (st.grid[i] === me.index) {
-    const c = i % W, r = (i / W) | 0;
-    for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
-      const nc = c + dx, nr = r + dy;
-      if (nc >= 0 && nc < W && nr >= 0 && nr < H) buildable.add(nr * W + nc);
-    }
-  }
+  buildable = new Set(); if (!st) return;
+  const g = st.buildings.find(b => b.o === me.index && b.t === 'guild'); if (!g) return;
+  const R = 6 + (st.me ? st.me.tech.influence : 0) * 2;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const c = g.x + dx, r = g.y + dy; if (c >= 0 && c < W && r >= 0 && r < H) buildable.add(r * W + c); }
 }
-
 let bannerTimer = null;
-function banner(t) { el.banner.textContent = t; el.banner.classList.remove('hidden'); if (!attackMode && !buildMode) { clearTimeout(bannerTimer); bannerTimer = setTimeout(hideBanner, 1700); } }
+function banner(t) { el.banner.textContent = t; el.banner.classList.remove('hidden'); if (!attackMode && !buildMode) { clearTimeout(bannerTimer); bannerTimer = setTimeout(hideBanner, 1900); } }
 function hideBanner() { if (!attackMode && !buildMode) el.banner.classList.add('hidden'); }
 function flash(b) { b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 150); }
 
-// ---------- панель технологій ----------
+// ---------- технології (рендер лише при зміні — щоб не губились тапи) ----------
+let techSig = '';
 function renderTech() {
   if (!st || !st.me) return;
-  const tk = st.me.res.tokens;
-  el.tokens.textContent = tk;
-  el.techList.innerHTML = TECH.map(([k, n, d]) => {
-    const lvl = st.me.tech[k];
-    const stars = '★'.repeat(lvl) + '☆'.repeat(5 - lvl);
-    const cost = lvl + 1;
-    const dis = lvl >= 5 || tk < cost;
-    const label = lvl >= 5 ? 'МАКС' : ('−' + cost + ' 🔧');
-    return `<div class="techrow"><div class="ti"><b>${n}</b><small>${d}</small><span class="stars">${stars}</span></div>
-      <button class="btn tbuy" data-k="${k}" ${dis ? 'disabled' : ''}>${label}</button></div>`;
-  }).join('');
-  el.techList.querySelectorAll('.tbuy').forEach(b => b.onclick = () => { socket.emit('command', { type: 'tech', branch: b.dataset.k }); });
+  const sig = st.me.res.tokens + '|' + TECH.map(([k]) => st.me.tech[k]).join(',');
+  if (sig === techSig) return; techSig = sig;
+  const tk = st.me.res.tokens; el.tokens.textContent = tk;
+  el.techList.innerHTML = TECH.map(([k, n, d]) => { const lvl = st.me.tech[k]; const stars = '★'.repeat(lvl) + '☆'.repeat(5 - lvl); const cost = lvl + 1; const dis = lvl >= 5 || tk < cost; const label = lvl >= 5 ? 'МАКС' : ('−' + cost + ' 🔧'); return `<div class="techrow"><div class="ti"><b>${n}</b><small>${d}</small><span class="stars">${stars}</span></div><button class="btn tbuy" data-k="${k}" ${dis ? 'disabled' : ''}>${label}</button></div>`; }).join('');
+  el.techList.querySelectorAll('.tbuy').forEach(b => b.onclick = () => { socket.emit('command', { type: 'tech', branch: b.dataset.k }); techSig = ''; });
 }
 
-// ---------- CANVAS ----------
+// ---------- звук ----------
+let actx = null;
+function sfxInit() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (actx && actx.state === 'suspended') actx.resume(); }
+function tone(type, f0, f1, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.02); } catch (e) {} }
+let lastShoot = 0;
+function sfxShoot() { const n = performance.now(); if (n - lastShoot < 70) return; lastShoot = n; tone('square', 620, 240, 0.1, 0.05); }
+function sfx(kind) { if (kind === 'boom') tone('sawtooth', 190, 45, 0.28, 0.09); else if (kind === 'build') tone('triangle', 300, 520, 0.12, 0.06); else if (kind === 'select') tone('sine', 480, 480, 0.06, 0.04); }
+
+// ---------- CANVAS + мультитач ----------
+const ptrs = new Map();
+let mode = null, startX = 0, startY = 0, boxing = false, box = null, panMid = null, pinchDist = 0, suppress = false;
 function setupCanvas() {
   canvas = document.getElementById('cv'); ctx = canvas.getContext('2d');
-  window.addEventListener('resize', resize); resize();
-  let down = false, moved = false, sx = 0, sy = 0, lx = 0, ly = 0;
-  canvas.addEventListener('pointerdown', e => { down = true; moved = false; sx = lx = e.clientX; sy = ly = e.clientY; canvas.setPointerCapture(e.pointerId); });
-  canvas.addEventListener('pointermove', e => { if (!down) return; camX += e.clientX - lx; camY += e.clientY - ly; lx = e.clientX; ly = e.clientY; if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 10) moved = true; });
-  canvas.addEventListener('pointerup', e => { down = false; if (!moved) tap(e.clientX, e.clientY); });
+  addEventListener('resize', resize); resize();
+  canvas.addEventListener('pointerdown', e => {
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId); sfxInit();
+    if (ptrs.size === 1) { if (suppress) return; startX = e.clientX; startY = e.clientY; boxing = false; box = { x0: startX, y0: startY, x1: startX, y1: startY }; mode = 'single'; }
+    else if (ptrs.size === 2) { mode = 'multi'; box = null; boxing = false; const p = [...ptrs.values()]; panMid = { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 }; pinchDist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y); }
+  });
+  canvas.addEventListener('pointermove', e => {
+    const rec = ptrs.get(e.pointerId); if (!rec) return; rec.x = e.clientX; rec.y = e.clientY;
+    if (mode === 'single' && ptrs.size === 1 && !suppress) { box.x1 = e.clientX; box.y1 = e.clientY; if (Math.abs(e.clientX - startX) + Math.abs(e.clientY - startY) > 10) boxing = true; }
+    else if (ptrs.size >= 2) { const p = [...ptrs.values()]; const mx = (p[0].x + p[1].x) / 2, my = (p[0].y + p[1].y) / 2, d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y); if (panMid) { camX += mx - panMid.x; camY += my - panMid.y; } if (pinchDist > 0) zoomAt(mx, my, d / pinchDist); panMid = { x: mx, y: my }; pinchDist = d; }
+  });
+  canvas.addEventListener('pointerup', e => {
+    const wasSingle = (mode === 'single' && ptrs.size === 1);
+    ptrs.delete(e.pointerId);
+    if (wasSingle && !suppress) { if (boxing) finalizeBox(); else tap(startX, startY); }
+    if (ptrs.size >= 1) suppress = true;
+    if (ptrs.size === 0) { suppress = false; mode = null; box = null; boxing = false; panMid = null; }
+  });
+  canvas.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); if (ptrs.size === 0) { suppress = false; mode = null; box = null; boxing = false; } });
 }
-function resize() { DPR = Math.min(window.devicePixelRatio || 1, 2); canvas.width = innerWidth * DPR; canvas.height = innerHeight * DPR; }
-
+function resize() { DPR = Math.min(devicePixelRatio || 1, 2); canvas.width = innerWidth * DPR; canvas.height = innerHeight * DPR; }
+function zoomAt(mx, my, ratio) { const old = CELL; let nw = clamp(CELL * ratio, 18, 60); if (Math.abs(nw - old) < 0.01) return; const wx = (mx - camX) / old, wy = (my - camY) / old; CELL = nw; camX = mx - wx * CELL; camY = my - wy * CELL; }
+function finalizeBox() {
+  const x0 = Math.min(box.x0, box.x1), x1 = Math.max(box.x0, box.x1), y0 = Math.min(box.y0, box.y1), y1 = Math.max(box.y0, box.y1);
+  const ids = [];
+  for (const u of myUnits()) { const sx = u.x * CELL + CELL / 2 + camX, sy = u.y * CELL + CELL / 2 + camY; if (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1) ids.push(u.i); }
+  if (ids.length) { sel.units = new Set(ids); sel.building = null; sel.scout = false; banner('Обрано юнітів: ' + ids.length); sfx('select'); }
+}
 function tap(px, py) {
   if (!st) return;
   const col = Math.floor((px - camX) / CELL), row = Math.floor((py - camY) / CELL);
   if (col < 0 || col >= W || row < 0 || row >= H) return;
-
-  if (buildMode) { socket.emit('command', { type: 'build', build: buildMode, cx: col, cy: row }); buildMode = null; buildable = null; modes(); return; }
+  if (buildMode) { if (buildable && !buildable.has(row * W + col)) { banner('Поза зоною гільдії'); return; } if (!canAfford(COST[buildMode])) { banner('Недостатньо ресурсів'); return; } socket.emit('command', { type: 'build', build: buildMode, cx: col, cy: row }); sfx('build'); buildMode = null; buildable = null; modes(); return; }
   if (attackMode) { if (sel.units.size === 0) selectAll(); sendMove(col, row); attackMode = false; modes(); return; }
-
   const b = st.buildings.find(bb => bb.x === col && bb.y === row);
-  if (b && b.o === me.index) { sel.building = b.i; sel.units.clear(); sel.scout = false; banner(BNAME[b.t] + ' обрано'); return; }
-
+  if (b && b.o === me.index) { sel.building = b.i; sel.units.clear(); sel.scout = false; banner(BNAME[b.t] + ' обрано'); sfx('select'); return; }
   const ids = st.units.filter(u => u.o === me.index && !u.s && Math.round(u.x) === col && Math.round(u.y) === row).map(u => u.i);
-  if (ids.length) { sel.units = new Set(ids); sel.building = null; sel.scout = false; return; }
-
+  if (ids.length) { sel.units = new Set(ids); sel.building = null; sel.scout = false; sfx('select'); return; }
   if (sel.units.size) sendMove(col, row);
 }
 
-// ---------- МАЛЮВАННЯ ----------
+// ---------- малювання ----------
 function draw() {
   requestAnimationFrame(draw);
   if (!canvas) return;
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.clearRect(0, 0, innerWidth, innerHeight);
-  if (!st || !biomes) return;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, innerWidth, innerHeight);
+  if (!st || !biomes || !gridArr) return;
   for (const id in renderU) { const r = renderU[id]; r.x += (r.tx - r.x) * 0.25; r.y += (r.ty - r.y) * 0.25; }
+  // плавні день/ніч і дощ
+  darkness += (((st.night ? 0.42 : 0)) - darkness) * 0.03;
+  rain += (((st.weather === 'rain' ? 1 : 0)) - rain) * 0.03;
 
   ctx.save(); ctx.translate(camX, camY);
-  drawTiles(); drawBuildings(); drawUnits(); drawEffects();
+  drawTiles(); drawBuildings(); drawUnits(); drawProjectiles(); drawEffects();
+  if (boxing && box) { const x0 = Math.min(box.x0, box.x1) - camX, y0 = Math.min(box.y0, box.y1) - camY, w = Math.abs(box.x1 - box.x0), h = Math.abs(box.y1 - box.y0); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(x0, y0, w, h); ctx.setLineDash([]); ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(x0, y0, w, h); }
   ctx.restore();
 
-  for (const e of effects) e.t += 1 / 60;
-  effects = effects.filter(e => e.t < 0.5);
-}
+  if (darkness > 0.01) { ctx.fillStyle = `rgba(6,10,26,${darkness})`; ctx.fillRect(0, 0, innerWidth, innerHeight); }
+  if (rain > 0.02) drawRain();
 
+  for (const e of effects) e.t += 1 / 60; effects = effects.filter(e => e.t < 0.5);
+  for (const p of projectiles) p.t += 1 / 60; projectiles = projectiles.filter(p => p.t < p.dur + 0.12);
+}
 function drawTiles() {
-  const g = st.grid;
-  // видима частина (обрізаємо за камерою для швидкості)
   const c0 = Math.max(0, Math.floor(-camX / CELL)), c1 = Math.min(W, Math.ceil((innerWidth - camX) / CELL));
   const r0 = Math.max(0, Math.floor(-camY / CELL)), r1 = Math.min(H, Math.ceil((innerHeight - camY) / CELL));
   for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) {
-    const i = r * W + c, o = g[i], x = c * CELL, y = r * CELL;
-    if (o === -2) { ctx.fillStyle = '#0a0c10'; ctx.fillRect(x, y, CELL, CELL); continue; } // туман
-    ctx.fillStyle = BIOME_COL[biomes[i]]; ctx.fillRect(x, y, CELL, CELL);
-    if (o >= 0) { ctx.fillStyle = COL_SOFT[IDX[o]]; ctx.fillRect(x, y, CELL, CELL); }
-    if (buildMode && buildable && buildable.has(i)) { ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x, y, CELL, CELL); }
+    const i = r * W + c, x = c * CELL, y = r * CELL, o = gridArr[i], b = biomes[i];
+    if (o === -2) {
+      if (seen[i]) { ctx.fillStyle = BIOME_DIM[b]; ctx.fillRect(x, y, CELL, CELL); if (mem[i] >= 0) { ctx.fillStyle = COL_FOG[IDX[mem[i]]]; ctx.fillRect(x, y, CELL, CELL); } }
+      else { ctx.fillStyle = '#07090d'; ctx.fillRect(x, y, CELL, CELL); }
+    } else {
+      ctx.fillStyle = BIOME_COL[b]; ctx.fillRect(x, y, CELL, CELL);
+      if (o >= 0) { ctx.fillStyle = COL_SOFT[IDX[o]]; ctx.fillRect(x, y, CELL, CELL); }
+      if (buildMode && buildable && buildable.has(i)) { ctx.fillStyle = 'rgba(120,255,140,.16)'; ctx.fillRect(x, y, CELL, CELL); }
+    }
   }
-  ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1; ctx.beginPath();
+  ctx.strokeStyle = 'rgba(0,0,0,.16)'; ctx.lineWidth = 1; ctx.beginPath();
   for (let c = c0; c <= c1; c++) { ctx.moveTo(c * CELL, r0 * CELL); ctx.lineTo(c * CELL, r1 * CELL); }
   for (let r = r0; r <= r1; r++) { ctx.moveTo(c0 * CELL, r * CELL); ctx.lineTo(c1 * CELL, r * CELL); }
   ctx.stroke();
 }
-
-function drawBuildings() {
-  for (const b of st.buildings) {
-    const x = b.x * CELL + CELL / 2, y = b.y * CELL + CELL / 2, c = COL[IDX[b.o]];
-    ctx.save(); ctx.translate(x, y);
-    if (b.t === 'guild') { const s = CELL * 0.44; ctx.fillStyle = c; ctx.fillRect(-s, -s, s * 2, s * 2); ctx.fillStyle = '#0d1017'; star(0, 0, CELL * 0.26, CELL * 0.12, 5); }
-    else if (b.t === 'mine') { rect(c, CELL * 0.32); ctx.fillStyle = '#0d1017'; tri(0, -CELL * 0.14, CELL * 0.16); }
-    else if (b.t === 'lumber') { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, CELL * 0.3, 0, 7); ctx.fill(); ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -CELL * 0.3); ctx.lineTo(0, CELL * 0.3); ctx.stroke(); }
-    else if (b.t === 'farm') { rect(c, CELL * 0.3); ctx.fillStyle = '#0d1017'; ctx.fillRect(-CELL * 0.24, -2, CELL * 0.48, 2); ctx.fillRect(-CELL * 0.24, CELL * 0.12, CELL * 0.48, 2); }
-    else if (b.t === 'barracks') { const s = CELL * 0.34; ctx.fillStyle = c; ctx.fillRect(-s, -s * 0.5, s * 2, s * 1.5); ctx.beginPath(); ctx.moveTo(-s, -s * 0.5); ctx.lineTo(0, -s); ctx.lineTo(s, -s * 0.5); ctx.closePath(); ctx.fill(); }
-    else if (b.t === 'tower') { ring(c, BUILD_RANGE.tower); ctx.fillStyle = c; tri(0, 0, CELL * 0.34); }
-    else if (b.t === 'cannon') { ring(c, BUILD_RANGE.cannon); ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, CELL * 0.3, 0, 7); ctx.fill(); ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(CELL * 0.32, -CELL * 0.2); ctx.stroke(); }
-    else if (b.t === 'landmine') { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, CELL * 0.16, 0, 7); ctx.fill(); ctx.strokeStyle = c; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(0, 0, CELL * 0.28, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-    ctx.restore();
-    if (b.t !== 'landmine') hpBar(x, y - CELL * 0.5, b.h, b.m, CELL * 0.8);
-  }
-}
+function sprite(type) { const im = SPR[type]; return im && im.complete && im.naturalWidth ? im : null; }
+function drawSpr(im, cx, cy, targetH) { const r = im.naturalWidth / im.naturalHeight; const h = targetH, w = h * r; ctx.drawImage(im, cx - w / 2, cy - h * 0.62, w, h); }
 const BUILD_RANGE = { tower: 4.2, cannon: 6.0 };
 function rect(c, s) { ctx.fillStyle = c; ctx.fillRect(-s, -s, s * 2, s * 2); }
 function tri(cx, cy, s) { ctx.beginPath(); ctx.moveTo(cx, cy - s); ctx.lineTo(cx + s, cy + s); ctx.lineTo(cx - s, cy + s); ctx.closePath(); ctx.fill(); }
 function ring(c, r) { ctx.strokeStyle = c + '44'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(0, 0, r * CELL, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-
+function drawBuildings() {
+  for (const b of st.buildings) {
+    const x = b.x * CELL + CELL / 2, y = b.y * CELL + CELL / 2, c = COL[IDX[b.o]];
+    if (b.t === 'tower') { ctx.save(); ctx.translate(x, y); ring(c, BUILD_RANGE.tower); ctx.restore(); }
+    if (b.t === 'cannon') { ctx.save(); ctx.translate(x, y); ring(c, BUILD_RANGE.cannon); ctx.restore(); }
+    const im = b.o === 0 ? sprite(b.t) : null;                 // спрайти лише для червоної команди
+    if (im) { drawSpr(im, x, y, CELL * (b.t === 'guild' ? 2.0 : 1.7)); }
+    else {
+      ctx.save(); ctx.translate(x, y);
+      if (b.t === 'guild') { const s = CELL * 0.44; ctx.fillStyle = c; ctx.fillRect(-s, -s, s * 2, s * 2); ctx.fillStyle = '#0d1017'; star(0, 0, CELL * 0.26, CELL * 0.12, 5); }
+      else if (b.t === 'mine') { rect(c, CELL * 0.32); ctx.fillStyle = '#0d1017'; tri(0, -CELL * 0.14, CELL * 0.16); }
+      else if (b.t === 'lumber') { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, CELL * 0.3, 0, 7); ctx.fill(); ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -CELL * 0.3); ctx.lineTo(0, CELL * 0.3); ctx.stroke(); }
+      else if (b.t === 'farm') { rect(c, CELL * 0.3); ctx.fillStyle = '#0d1017'; ctx.fillRect(-CELL * 0.24, -2, CELL * 0.48, 2); ctx.fillRect(-CELL * 0.24, CELL * 0.12, CELL * 0.48, 2); }
+      else if (b.t === 'barracks') { const s = CELL * 0.34; ctx.fillStyle = c; ctx.fillRect(-s, -s * 0.5, s * 2, s * 1.5); ctx.beginPath(); ctx.moveTo(-s, -s * 0.5); ctx.lineTo(0, -s); ctx.lineTo(s, -s * 0.5); ctx.closePath(); ctx.fill(); }
+      else if (b.t === 'tower') { ctx.fillStyle = c; tri(0, 0, CELL * 0.34); }
+      else if (b.t === 'cannon') { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, CELL * 0.3, 0, 7); ctx.fill(); }
+      else if (b.t === 'landmine') { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, CELL * 0.16, 0, 7); ctx.fill(); ctx.strokeStyle = c; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(0, 0, CELL * 0.28, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
+      ctx.restore();
+    }
+    // рівень над гільдією (видно лише коли гільдія в зоні видимості)
+    if (b.t === 'guild' && b.gl != null) { ctx.font = 'bold ' + Math.round(CELL * 0.5) + 'px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#0d1017'; ctx.strokeText('★' + b.gl, x, y - CELL * 1.15); ctx.fillStyle = c; ctx.fillText('★' + b.gl, x, y - CELL * 1.15); ctx.textAlign = 'left'; }
+    // прогрес виробництва
+    if (b.t === 'barracks' && b.q) { const w = CELL * 0.8; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w, 4); ctx.fillStyle = '#f5c542'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w * (b.prog || 0), 4); if (b.q > 1) { ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'; ctx.fillText('x' + b.q, x + w / 2 - 2, y + CELL * 0.5 - 2); } }
+    if (b.t !== 'landmine') hpBar(x, y - CELL * (im ? 0.72 : 0.5), b.h, b.m, CELL * 0.8);
+  }
+}
 function drawUnits() {
   for (const id in renderU) {
     const u = renderU[id], x = u.x * CELL + CELL / 2, y = u.y * CELL + CELL / 2, c = COL[IDX[u.o]];
-    if (u.s) { // розвідник (лише свій) — око
-      ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, y, CELL * 0.26, CELL * 0.16, 0, 0, 7); ctx.stroke();
-      ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, CELL * 0.07, 0, 7); ctx.fill();
-      if (sel.scout && sel.units.has(+id)) { ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, CELL * 0.32, 0, 7); ctx.stroke(); }
-      continue;
+    const im = u.o === 0 ? sprite(u.s ? 'scout' : u.t) : null;
+    if (u.o === me.index && sel.units.has(+id)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y + CELL * 0.18, CELL * 0.3, 0, 7); ctx.stroke(); }
+    if (im) { drawSpr(im, x, y, CELL * (u.s ? 1.15 : 1.15)); }
+    else if (u.s) { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, y, CELL * 0.26, CELL * 0.16, 0, 0, 7); ctx.stroke(); ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, CELL * 0.07, 0, 7); ctx.fill(); }
+    else {
+      ctx.fillStyle = c; const t = u.t;
+      if (t === 'sword') { ctx.beginPath(); ctx.arc(x, y, CELL * 0.22, 0, 7); ctx.fill(); }
+      else if (t === 'archer') { ctx.beginPath(); ctx.arc(x, y, CELL * 0.19, 0, 7); ctx.fill(); ctx.fillStyle = '#0d1017'; tri(x, y + CELL * 0.02, CELL * 0.09); }
+      else if (t === 'mage') { ctx.beginPath(); ctx.moveTo(x, y - CELL * 0.24); ctx.lineTo(x + CELL * 0.21, y); ctx.lineTo(x, y + CELL * 0.24); ctx.lineTo(x - CELL * 0.21, y); ctx.closePath(); ctx.fill(); }
+      else if (t === 'spear') { ctx.beginPath(); ctx.arc(x, y, CELL * 0.2, 0, 7); ctx.fill(); ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - CELL * 0.24, y - CELL * 0.24); ctx.lineTo(x + CELL * 0.24, y + CELL * 0.24); ctx.stroke(); }
+      else if (t === 'assassin') { ctx.beginPath(); ctx.moveTo(x, y - CELL * 0.22); ctx.lineTo(x + CELL * 0.16, y + CELL * 0.18); ctx.lineTo(x - CELL * 0.16, y + CELL * 0.18); ctx.closePath(); ctx.fill(); }
+      else if (t === 'catapult') { const s = CELL * 0.26; ctx.fillRect(x - s, y - s * 0.7, s * 2, s * 1.4); ctx.fillStyle = '#0d1017'; ctx.beginPath(); ctx.arc(x, y, s * 0.35, 0, 7); ctx.fill(); }
+      else if (t === 'ram') { const s = CELL * 0.3; ctx.fillRect(x - s, y - s * 0.5, s * 2, s); ctx.fillStyle = '#0d1017'; ctx.fillRect(x + s * 0.5, y - s * 0.25, s * 0.6, s * 0.5); }
     }
-    if (u.o === me.index && sel.units.has(+id)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, CELL * 0.34, 0, 7); ctx.stroke(); }
-    ctx.fillStyle = c;
-    const t = u.t;
-    if (t === 'sword') { ctx.beginPath(); ctx.arc(x, y, CELL * 0.22, 0, 7); ctx.fill(); }
-    else if (t === 'archer') { ctx.beginPath(); ctx.arc(x, y, CELL * 0.19, 0, 7); ctx.fill(); ctx.fillStyle = '#0d1017'; tri(x, y + CELL * 0.02, CELL * 0.09); }
-    else if (t === 'mage') { ctx.beginPath(); ctx.moveTo(x, y - CELL * 0.24); ctx.lineTo(x + CELL * 0.21, y); ctx.lineTo(x, y + CELL * 0.24); ctx.lineTo(x - CELL * 0.21, y); ctx.closePath(); ctx.fill(); }
-    else if (t === 'assassin') { ctx.beginPath(); ctx.moveTo(x, y - CELL * 0.22); ctx.lineTo(x + CELL * 0.16, y + CELL * 0.18); ctx.lineTo(x - CELL * 0.16, y + CELL * 0.18); ctx.closePath(); ctx.fill(); }
-    else if (t === 'catapult') { const s = CELL * 0.26; ctx.fillRect(x - s, y - s * 0.7, s * 2, s * 1.4); ctx.fillStyle = '#0d1017'; ctx.beginPath(); ctx.arc(x, y, s * 0.35, 0, 7); ctx.fill(); }
-    else if (t === 'ram') { const s = CELL * 0.3; ctx.fillRect(x - s, y - s * 0.5, s * 2, s); ctx.fillStyle = '#0d1017'; ctx.fillRect(x + s * 0.5, y - s * 0.25, s * 0.6, s * 0.5); }
-    if (u.m) hpBar(x, y - CELL * 0.34, u.h, u.m, CELL * 0.44);
+    if (sel.scout && u.s && sel.units.has(+id)) { ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y + CELL * 0.15, CELL * 0.3, 0, 7); ctx.stroke(); }
+    if (u.m && !u.s) hpBar(x, y - CELL * (im ? 0.5 : 0.34), u.h, u.m, CELL * 0.44);
   }
 }
 function hpBar(cx, top, hp, max, w) { if (hp >= max) return; const ratio = Math.max(0, hp / max), h = 3; ctx.fillStyle = '#000a'; ctx.fillRect(cx - w / 2, top - h, w, h); ctx.fillStyle = ratio > .5 ? '#4ad07a' : ratio > .25 ? '#f5c542' : '#ff5a5a'; ctx.fillRect(cx - w / 2, top - h, w * ratio, h); }
-function drawEffects() {
-  for (const e of effects) {
-    const x = e.x * CELL + CELL / 2, y = e.y * CELL + CELL / 2, p = e.t / 0.5;
-    ctx.globalAlpha = 1 - p; ctx.strokeStyle = e.c; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(x, y, CELL * (0.2 + p * 0.5), 0, 7); ctx.stroke();
-    ctx.fillStyle = e.c; for (let i = 0; i < 6; i++) { const a = i / 6 * 7, d = CELL * p * 0.7; ctx.beginPath(); ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, 2.5 * (1 - p), 0, 7); ctx.fill(); }
-    ctx.globalAlpha = 1;
+function drawProjectiles() {
+  for (const p of projectiles) {
+    const f = Math.min(1, p.t / p.dur);
+    const sx = p.x * CELL + CELL / 2, sy = p.y * CELL + CELL / 2, tx = p.tx * CELL + CELL / 2, ty = p.ty * CELL + CELL / 2;
+    const cx = sx + (tx - sx) * f, cy = sy + (ty - sy) * f - Math.sin(f * Math.PI) * (p.k === 'ball' ? CELL * 0.8 : 0);
+    if (f < 1) {
+      if (p.k === 'arrow') { ctx.strokeStyle = '#e8e2c0'; ctx.lineWidth = 2; const a = Math.atan2(ty - sy, tx - sx); ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx - Math.cos(a) * CELL * 0.3, cy - Math.sin(a) * CELL * 0.3); ctx.stroke(); }
+      else if (p.k === 'magic') { ctx.fillStyle = '#ff5a5a'; ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.arc(cx, cy, CELL * 0.12, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+      else { ctx.fillStyle = '#3a3a3a'; ctx.beginPath(); ctx.arc(cx, cy, CELL * 0.14, 0, 7); ctx.fill(); }
+    } else { const ip = (p.t - p.dur) / 0.12; ctx.globalAlpha = 1 - ip; ctx.strokeStyle = p.k === 'magic' ? '#ff7a7a' : '#ffd28a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(tx, ty, CELL * (0.1 + ip * 0.3), 0, 7); ctx.stroke(); ctx.globalAlpha = 1; }
   }
 }
+function drawEffects() { for (const e of effects) { const x = e.x * CELL + CELL / 2, y = e.y * CELL + CELL / 2, p = e.t / 0.5; ctx.globalAlpha = 1 - p; ctx.strokeStyle = e.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, CELL * (0.2 + p * 0.5), 0, 7); ctx.stroke(); ctx.fillStyle = e.c; for (let i = 0; i < 6; i++) { const a = i / 6 * 7, d = CELL * p * 0.7; ctx.beginPath(); ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, 2.5 * (1 - p), 0, 7); ctx.fill(); } ctx.globalAlpha = 1; } }
+let rainSeed = []; for (let i = 0; i < 90; i++) rainSeed.push({ x: Math.random(), y: Math.random(), s: 0.5 + Math.random() });
+function drawRain() { ctx.save(); ctx.globalAlpha = rain * 0.5; ctx.strokeStyle = '#9fb6d8'; ctx.lineWidth = 1; const tt = performance.now() / 1000; for (const d of rainSeed) { const x = ((d.x + tt * 0.02) % 1) * innerWidth, y = ((d.y + tt * d.s) % 1) * innerHeight; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 3, y + 12); ctx.stroke(); } ctx.restore(); ctx.fillStyle = `rgba(40,60,90,${rain * 0.10})`; ctx.fillRect(0, 0, innerWidth, innerHeight); }
 function star(cx, cy, R, r, n) { ctx.beginPath(); for (let i = 0; i < n * 2; i++) { const rad = i % 2 ? r : R, a = i * Math.PI / n - Math.PI / 2; const px = cx + Math.cos(a) * rad, py = cy + Math.sin(a) * rad; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.closePath(); ctx.fill(); }
 
 // ---------- дебаг ----------
-function createDbg() {
-  if (document.getElementById('dbg')) return;
-  const d = document.createElement('button'); d.id = 'dbg';
-  d.style.cssText = 'position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:6;padding:9px 16px;border:none;border-radius:20px;font-weight:700;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.45);color:#0d1017;';
-  d.onclick = () => socket.emit('switchEmpire');
-  document.getElementById('game').appendChild(d); updateDbg();
+function createDbgBar() {
+  if (document.getElementById('dbgbar')) return;
+  const bar = document.createElement('div'); bar.id = 'dbgbar';
+  bar.style.cssText = 'position:fixed;top:92px;left:50%;transform:translateX(-50%);z-index:7;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:96%;';
+  bar.innerHTML = '<button id="dbgSwitch" class="dbgbtn"></button><button id="dbgFog" class="dbgbtn">🌫 Туман: ВИМК</button><button id="dbgEnd" class="dbgbtn">🏁 Завершити</button>';
+  document.getElementById('game').appendChild(bar);
+  document.getElementById('dbgSwitch').onclick = () => socket.emit('switchEmpire');
+  document.getElementById('dbgFog').onclick = () => socket.emit('toggleFog');
+  document.getElementById('dbgEnd').onclick = () => socket.emit('debugEnd');
+  updateDbg();
 }
-function updateDbg() { const d = document.getElementById('dbg'); if (!d) return; d.textContent = '🔧 Граю за: ' + (CNAME[me.color] || '') + ' ▸ змінити'; d.style.background = COL[me.color] || '#f5c542'; }
+function updateDbg() { const b = document.getElementById('dbgSwitch'); if (!b) return; b.textContent = '🔧 За: ' + (CNAME[me.color] || '') + ' ▸'; b.style.background = COL[me.color] || '#f5c542'; b.style.color = '#0d1017'; }
 
-// ---------- інше ----------
-function toggleFullscreen() { const de = document.documentElement; if (!document.fullscreenElement) (de.requestFullscreen || de.webkitRequestFullscreen || (()=>{})).call(de); else document.exitFullscreen && document.exitFullscreen(); }
-function showWin(idx) { el.overlay.classList.remove('hidden'); if (idx === me.index) el.overTitle.textContent = '🏆 Перемога!'; else if (idx === -1) el.overTitle.textContent = 'Нічия'; else el.overTitle.innerHTML = `Переможець — <span style="color:${COL[IDX[idx]]}">${CNAME[IDX[idx]]}</span> імперія`; }
+// ---------- ендскрін ----------
+function showEnd(d) {
+  el.overlay.classList.remove('hidden');
+  const rows = [...d.stats].sort((a, b) => (b.territory + b.kills * 6 + b.razed * 20 + b.built * 3 + (b.alive ? 300 : 0)) - (a.territory + a.kills * 6 + a.razed * 20 + a.built * 3 + (a.alive ? 300 : 0)));
+  const winTxt = d.winner === -1 ? 'Нічия' : `Перемогла <span style="color:${COL[IDX[d.winner]]}">${CNAME[IDX[d.winner]]}</span> імперія`;
+  let html = `<h2 class="endtitle">🏆 ${winTxt}</h2><div class="statwrap">`; let place = 0;
+  for (const p of rows) { place++; html += `<div class="statcard" style="border-color:${COL[IDX[p.index]]}"><div class="sc-h"><span class="place">#${place}</span><span class="dot ${p.color}"></span><b>${CNAME[p.color]}</b>${p.index === d.winner ? ' 👑' : ''}${p.alive ? '' : ' <small class="mut">вибула</small>'}</div><div class="sc-g"><span>🗺 територія<b>${p.territory}</b></span><span>⚔ вбито<b>${p.kills}</b></span><span>💀 втрати<b>${p.lost}</b></span><span>🏚 знищено споруд<b>${p.razed}</b></span><span>🏗 збудовано<b>${p.built}</b></span><span>👥 створено військ<b>${p.made}</b></span><span>📦 ресурсів<b>${p.gathered}</b></span><span>🏛 гільдія<b>ур.${p.guildLevel}</b></span></div></div>`; }
+  html += `</div><button id="againBtn2" class="btn big">Нова гра</button>`;
+  el.overlay.querySelector('.panel').innerHTML = html; el.overlay.querySelector('.panel').classList.add('endpanel');
+  document.getElementById('againBtn2').onclick = () => location.reload();
+}
+function toggleFullscreen() { const de = document.documentElement; if (!document.fullscreenElement) (de.requestFullscreen || de.webkitRequestFullscreen || function () {}).call(de); else document.exitFullscreen && document.exitFullscreen(); }
+
+// ---------- зум/звук-кнопки ----------
+window.addEventListener('DOMContentLoaded', () => {
+  const zi = document.getElementById('zoomIn'), zo = document.getElementById('zoomOut'), mb = document.getElementById('muteBtn');
+  if (zi) zi.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
+  if (zo) zo.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
+  if (mb) mb.onclick = () => { muted = !muted; mb.textContent = muted ? '🔇' : '🔊'; if (!muted) sfxInit(); };
+});
