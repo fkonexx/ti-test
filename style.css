@@ -121,3 +121,81 @@ input:focus{border-color:var(--accent);}
 
 /* ---- v5: кнопка купівлі прапора в меню будівель ---- */
 .buildMenu .flagbuy,.submenu .flagbuy{border-color:#f5c542 !important;color:#ffdf5a;}
+
+/* ---- Balance v2: таймер миру ---- */
+#peace{position:fixed;top:92px;left:50%;transform:translateX(-50%);z-index:6;
+  background:rgba(74,208,122,.16);border:2px solid #4ad07a;color:#c8f5d8;
+  padding:6px 16px;border-radius:20px;font-size:15px;font-weight:800;letter-spacing:.5px;
+  box-shadow:0 4px 14px rgba(0,0,0,.4);pointer-events:none;white-space:nowrap;}
+
+/* ============================================================
+   iOS / малі екрани — компактний адаптив (Android/Desktop без змін)
+   ============================================================ */
+/* сучасні viewport-одиниці (із фолбеком на height:100%) */
+html,body{height:100dvh;}
+#cv{width:100dvw;height:100dvh;}
+/* safe-area з боків — для ландшафту з вирізом */
+#top{padding-left:calc(10px + env(safe-area-inset-left));padding-right:calc(10px + env(safe-area-inset-right));}
+#controls{padding-left:calc(8px + env(safe-area-inset-left));padding-right:calc(8px + env(safe-area-inset-right));}
+#zoom{right:calc(10px + env(safe-area-inset-right));}
+#modeBtn.sidebtn{left:calc(10px + env(safe-area-inset-left));}
+
+/* псевдо-повний-екран (iPhone Safari, де немає справжнього FS) */
+body.pseudo-fs #top{padding-top:calc(2px + env(safe-area-inset-top));}
+body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--accent);}
+
+/* ---- вузькі екрани (iPhone), portrait ---- */
+@media (max-width: 430px){
+  #top{padding:6px 8px;padding-top:calc(6px + env(safe-area-inset-top));
+    padding-left:calc(8px + env(safe-area-inset-left));padding-right:calc(8px + env(safe-area-inset-right));gap:4px;}
+  .chip{padding:3px 6px;font-size:11px;gap:3px;border-radius:8px;}
+  .icon{width:34px;height:34px;font-size:16px;border-radius:9px;}
+  #banner{top:52px;font-size:12px;padding:6px 12px;}
+  #peace{top:80px;font-size:13px;padding:5px 12px;}
+
+  #controls{gap:4px;padding:5px 6px;padding-bottom:calc(5px + env(safe-area-inset-bottom));
+    padding-left:calc(6px + env(safe-area-inset-left));padding-right:calc(6px + env(safe-area-inset-right));}
+  .btn.ctrl{padding:6px 1px;font-size:9.5px;gap:2px;border-radius:9px;}
+  .btn.ctrl i{font-size:15px;}
+
+  #zoom{bottom:calc(62px + env(safe-area-inset-bottom));gap:5px;}
+  #zoom .icon{width:38px;height:38px;font-size:20px;}
+  #modeBtn.sidebtn{bottom:calc(62px + env(safe-area-inset-bottom));width:46px;height:46px;font-size:18px;border-radius:12px;}
+  #modeBtn.sidebtn small{font-size:8px;}
+
+  .submenu{left:6px;right:6px;bottom:calc(58px + env(safe-area-inset-bottom));gap:5px;max-height:46vh;overflow-y:auto;}
+  .btn.s{min-width:74px;padding:8px 3px;font-size:12px;}
+  .btn.s small{font-size:10px;}
+  #ctxbar{left:6px;right:6px;bottom:calc(58px + env(safe-area-inset-bottom));gap:5px;}
+  #ctxbar .ctxb{padding:7px 11px;font-size:12px;}
+  #techPanel{left:6px;right:6px;top:56px;bottom:calc(58px + env(safe-area-inset-bottom));padding:10px;border-radius:14px;}
+  .techhead{font-size:14px;}
+  .techhead span{font-size:12px;}
+  .techrow{padding:7px 4px;gap:8px;}
+  .ti small{font-size:10px;}
+  .tbuy{padding:7px 10px;font-size:12px;}
+
+  .panel{padding:20px 16px;}
+  .logo{font-size:26px;}
+  .code{font-size:32px;letter-spacing:6px;}
+  .endpanel{max-height:84vh;}
+}
+
+/* ---- дуже низькі екрани (iPhone landscape) ---- */
+@media (max-height: 430px) and (orientation: landscape){
+  #top{padding:4px 8px;padding-top:calc(4px + env(safe-area-inset-top));
+    padding-left:calc(8px + env(safe-area-inset-left));padding-right:calc(8px + env(safe-area-inset-right));}
+  .chip{padding:2px 6px;font-size:11px;}
+  #banner{top:calc(38px + env(safe-area-inset-top));font-size:12px;padding:5px 12px;}
+  #peace{top:calc(70px + env(safe-area-inset-top));font-size:12px;padding:4px 10px;}
+  #controls{padding:3px 6px;padding-bottom:calc(3px + env(safe-area-inset-bottom));
+    padding-left:calc(6px + env(safe-area-inset-left));padding-right:calc(6px + env(safe-area-inset-right));gap:4px;}
+  .btn.ctrl{padding:4px 1px;font-size:9px;gap:1px;}
+  .btn.ctrl i{font-size:14px;}
+  #zoom{bottom:calc(48px + env(safe-area-inset-bottom));gap:4px;}
+  #zoom .icon{width:34px;height:34px;font-size:18px;}
+  #modeBtn.sidebtn{bottom:calc(48px + env(safe-area-inset-bottom));width:42px;height:42px;font-size:16px;}
+  .submenu,#ctxbar{bottom:calc(46px + env(safe-area-inset-bottom));max-height:42vh;overflow-y:auto;}
+  #techPanel{top:42px;bottom:calc(46px + env(safe-area-inset-bottom));}
+  .endpanel{max-height:80vh;}
+}

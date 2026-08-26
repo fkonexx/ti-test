@@ -1,5 +1,5 @@
 // ============================================================
-//  ЧОТИРИ ІМПЕРІЇ (v5) — сервер
+//  ЧОТИРИ ІМПЕРІЇ — Balance v2 — сервер
 // ============================================================
 const express = require('express');
 const http = require('http');
@@ -13,49 +13,69 @@ app.get('/health', (req, res) => res.send('ok'));
 const server = http.createServer(app);
 const io = new Server(server);
 
-const W = 60, H = 60;
+// ---- глобальні константи ----
+const W = 130, H = 130;
 const COLORS = ['red', 'blue', 'green', 'yellow'];
-const BASES = [{ cx: 7, cy: 7 }, { cx: 52, cy: 7 }, { cx: 7, cy: 52 }, { cx: 52, cy: 52 }];
 const TICK_MS = 120, DT = TICK_MS / 1000;
 const DEBUG_CODE = 'LNQ247';
-const TOKEN_TIME = 30;
-const ARMY_PER_BARRACKS = 5;
+const PEACE_TIME = 120;                 // 2 хв миру
+const ARMY_PER_BARRACKS = 7;
 const INF_BASE = 6, INF_STEP = 2;
 const DAY_CYCLE = 110, DAY_LEN = 70;
-const GUILD_CAP = 10;
-const GUILD_PER_UPGRADE = 0.8;
-const COLLECT_TIME = 12, BATCH_BASE = 14;
-const SCOUT_RESPAWN = 180;
-const SEP = 0.8;                         // мін. відстань між юнітами (розлипання)
-const FLAG = { hp: 55, vision: 5, slots: 2, radius: 3, max: 3, minLevel: 6, cost: { wood: 100, stone: 100, gold: 250 } };
+const GUILD_CAP = 15;
+const GUILD_PER_UPGRADE = 0.6;
+const COLLECT_TIME = 12, BATCH_BASE = 12, GOLD_BASE = 8;
+const SCOUT_RESPAWN = 120;
+const SEP = 0.8;
+const TOKEN_BASE = 30, TOKEN_STEP = 2.5;
+const TECH_COST = [1, 2, 3, 5, 7];      // вартість рівнів 1..5
+const AUTO_COST = 5;
+const REPAIR_DELAY = 60, REPAIR_PER_SEC = 10 / 60;   // +10 HP/хв після 60с без ушкоджень
+const FLAG = { hp: 180, vision: 5, slots: 2, radius: 3, cost: { wood: 100, stone: 100, gold: 250 } };
+const MINE = { hp: 30, arm: 5, trigger: 0.8, boom: 2.0, max: 15, spacing: 2, heavy: 130 };
+const MINE_LETHAL = new Set(['sword', 'archer', 'mage', 'spear', 'assassin', 'priest']);
+const SCOUT_VISION = [0, 10, 12, 14, 16, 18];
+const SCOUT_SPEED = [0, 3.6, 3.9, 4.2, 4.5, 4.8];
+const FLAG_CAP = [0, 0, 0, 1, 2, 3];               // за рівнем scouting
+const MINE_DETECT = [0, 0, 0, 2.5, 4, 6];          // за рівнем scouting
 
+// біоми: 0 rocky, 1 fertile, 2 forest, 3 ancient_forest, 4 black_soil, 5 rich_ore, 6 gold
 const BIOME_MULT = [
-  { mine: 1.5, farm: 1.0, lumber: 0.5 },
-  { mine: 0.5, farm: 1.5, lumber: 1.0 },
-  { mine: 1.0, farm: 0.5, lumber: 1.5 },
+  { mine: 1.5, lumber: 0.75, farm: 0.75 },
+  { mine: 0.75, lumber: 1.0, farm: 1.5 },
+  { mine: 0.75, lumber: 1.5, farm: 0.75 },
+  { mine: 0.75, lumber: 2.0, farm: 0.75 },
+  { mine: 0.75, lumber: 1.0, farm: 2.0 },
+  { mine: 2.0, lumber: 0.75, farm: 0.75 },
+  { mine: 1.0, lumber: 0.75, farm: 0.75 },   // gold — мультиплікатор не використовується для золота
 ];
-const UNIT = {
-  sword:     { hp: 60,  dmg: 9,  range: 1.0, aggro: 3.0, speed: 2.6, cd: 0.7, food: 15, gold: 10, splash: 0,   army: 1, cls: 'inf', build: 3.0 },
-  archer:    { hp: 28,  dmg: 8,  range: 4.0, aggro: 5.0, speed: 2.4, cd: 0.9, food: 12, gold: 14, splash: 0,   army: 1, cls: 'rng', build: 3.5 },
-  mage:      { hp: 24,  dmg: 12, range: 3.6, aggro: 5.0, speed: 2.2, cd: 1.2, food: 10, gold: 22, splash: 1.6, army: 2, cls: 'rng', build: 5.0 },
-  spear:     { hp: 55,  dmg: 8,  range: 1.3, aggro: 3.0, speed: 2.5, cd: 0.8, food: 15, gold: 12, splash: 0,   army: 3, cls: 'inf', build: 3.5 },
-  assassin:  { hp: 34,  dmg: 14, range: 1.0, aggro: 3.5, speed: 3.9, cd: 0.5, food: 14, gold: 20, splash: 0,   army: 3, cls: 'cav', build: 4.0 },
-  catapult:  { hp: 120, dmg: 26, range: 6.0, aggro: 7.0, speed: 1.1, cd: 2.2, food: 20, gold: 35, splash: 1.4, army: 4, cls: 'siege', build: 8.0 },
-  ram:       { hp: 170, dmg: 40, range: 1.4, aggro: 2.5, speed: 1.3, cd: 2.8, food: 22, gold: 30, splash: 0,   army: 5, cls: 'siege', build: 7.0, vsBuilding: 2.2 },
-  commander: { hp: 150, dmg: 11, range: 1.2, aggro: 3.0, speed: 2.8, cd: 0.9, food: 30, gold: 60, splash: 0,   army: 5, cls: 'inf', build: 9.0, aura: 4.0, auraBonus: 0.35 },
-};
-const RPS = { inf: { rng: 1.4 }, rng: { inf: 1.75 }, cav: { rng: 1.75 } };
-function rpsMult(atkType, tgtType) { const a = UNIT[atkType], t = UNIT[tgtType]; if (!a || !t) return 1; if (atkType === 'spear' && t.cls === 'cav') return 2.0; const m = RPS[a.cls]; return m && m[t.cls] ? m[t.cls] : 1; }
 
+// ---- юніти (Balance v2) ----
+const UNIT = {
+  sword:     { hp: 85,  dmg: 10, range: 1.1, cd: 0.8,  speed: 2.6, aggro: 4.5, unlock: 1, food: 18, gold: 12, build: 7,  cls: 'inf' },
+  archer:    { hp: 55,  dmg: 9,  range: 5.5, cd: 1.0,  speed: 2.4, aggro: 7.0, unlock: 1, food: 16, gold: 16, build: 8,  cls: 'rng' },
+  mage:      { hp: 50,  dmg: 14, range: 5.0, cd: 1.3,  speed: 2.2, aggro: 6.5, unlock: 2, food: 20, gold: 28, build: 10, splash: 1.8, splashPct: 0.6, cls: 'rng' },
+  spear:     { hp: 100, dmg: 11, range: 1.5, cd: 0.9,  speed: 2.5, aggro: 4.5, unlock: 3, food: 22, gold: 20, build: 12, cls: 'inf' },
+  priest:    { hp: 60,  dmg: 0,  range: 0,   cd: 0,    speed: 2.5, aggro: 0,   unlock: 3, food: 25, gold: 35, build: 16, support: true, heal: 6, healRange: 5.0, healCd: 1.5, cls: 'sup' },
+  assassin:  { hp: 65,  dmg: 15, range: 1.0, cd: 0.65, speed: 3.8, aggro: 5.0, unlock: 4, food: 22, gold: 32, build: 14, cls: 'cav' },
+  catapult:  { hp: 210, dmg: 24, range: 6.5, cd: 2.3,  speed: 1.1, aggro: 8.0, unlock: 4, food: 20, gold: 45, wood: 30, stone: 20, build: 28, splash: 1.5, splashPct: 0.6, siege: true, workshop: true, cls: 'siege' },
+  ram:       { hp: 240, dmg: 24, range: 1.4, cd: 2.0,  speed: 1.3, aggro: 8.0, unlock: 5, food: 20, gold: 50, wood: 50, stone: 30, build: 24, antiBuilding: true, workshop: true, cls: 'siege' },
+  commander: { hp: 190, dmg: 0,  range: 0,   cd: 0,    speed: 2.6, aggro: 0,   unlock: 5, food: 35, gold: 75, build: 22, support: true, aura: 7.0, auraBonus: 0.25, max1: true, cls: 'sup' },
+};
+const BUILD_DMG_UNIT = 0.35;   // звичайні юніти по спорудах
+
+// ---- будівлі (Balance v2) ----
 const BUILD = {
-  guild:    { hp: 600, cost: {},                              construction: 0 },
-  mine:     { hp: 90,  cost: { wood: 30, stone: 10, gold: 10 }, res: 'stone', kind: 'mine',   construction: 1 },
-  lumber:   { hp: 90,  cost: { wood: 10, stone: 20, gold: 10 }, res: 'wood',  kind: 'lumber', construction: 1 },
-  farm:     { hp: 80,  cost: { wood: 20, stone: 10, gold: 10 }, res: 'food',  kind: 'farm',   construction: 1 },
-  barracks: { hp: 140, cost: { wood: 40, stone: 40, gold: 20 }, construction: 2 },
-  tower:    { hp: 180, cost: { wood: 30, stone: 60, gold: 30 }, range: 4.2, dmg: 11, cd: 0.8,            construction: 3 },
-  cannon:   { hp: 220, cost: { wood: 40, stone: 90, gold: 50 }, range: 6.0, dmg: 24, cd: 1.8, splash: 1.3, construction: 4 },
-  landmine: { hp: 1,   cost: { wood: 10, stone: 30, gold: 10 }, trap: true, dmg: 70, radius: 1.8,        construction: 5 },
+  guild:    { hp: 1100, cost: {},                              construction: 0 },
+  farm:     { hp: 160,  cost: { wood: 30, stone: 15, gold: 15 }, res: 'food', kind: 'farm',   construction: 1 },
+  lumber:   { hp: 180,  cost: { wood: 15, stone: 30, gold: 15 }, res: 'wood', kind: 'lumber', construction: 1 },
+  mine:     { hp: 180,  cost: { wood: 35, stone: 15, gold: 15 }, res: 'stone', kind: 'mine',  construction: 1 },
+  barracks: { hp: 300,  cost: { wood: 60, stone: 60, gold: 30 }, construction: 2 },
+  wall:     { hp: 175,  cost: { wood: 10, stone: 20 },           construction: 2, wall: true },
+  tower:    { hp: 350,  cost: { wood: 50, stone: 80, gold: 40 }, range: 5.5, dmg: 13, cd: 1.0, construction: 3 },
+  cannon:   { hp: 450,  cost: { wood: 70, stone: 120, gold: 70 }, range: 7.0, dmg: 28, cd: 2.2, splash: 1.6, splashPct: 0.6, construction: 4 },
+  workshop: { hp: 350,  cost: { wood: 80, stone: 100, gold: 60 }, construction: 4 },
+  landmine: { hp: MINE.hp, cost: { wood: 10, stone: 35, gold: 20 }, construction: 5, isMine: true },
   flag:     { hp: FLAG.hp, cost: FLAG.cost },
 };
 const TECH_KEYS = ['construction', 'army', 'influence', 'mining', 'lumber', 'farming', 'warfare', 'defense', 'scouting', 'engineering'];
@@ -68,145 +88,239 @@ function cheb(ax, ay, bx, by) { return Math.max(Math.abs(ax - bx), Math.abs(ay -
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 function playerOf(s, i) { return s.players.find(p => p.index === i); }
 
-function generateBiomes() {
+// ---- випадкові стартові позиції ----
+function genSpawns(n) {
+  const margin = 16;
+  for (let attempt = 0; attempt < 800; attempt++) {
+    const minD = attempt < 500 ? 55 : 50;
+    const pts = []; let ok = true;
+    for (let i = 0; i < n; i++) {
+      let placed = false;
+      for (let t = 0; t < 80; t++) {
+        const x = margin + Math.floor(Math.random() * (W - 2 * margin));
+        const y = margin + Math.floor(Math.random() * (H - 2 * margin));
+        if (pts.every(p => dist(p.cx, p.cy, x, y) >= minD)) { pts.push({ cx: x, cy: y }); placed = true; break; }
+      }
+      if (!placed) { ok = false; break; }
+    }
+    if (ok) return pts;
+  }
+  // запасний варіант — розкидані точки
+  const pts = []; for (let i = 0; i < n; i++) pts.push({ cx: 20 + (i % 2) * (W - 40), cy: 20 + (i < 2 ? 0 : 1) * (H - 40) }); return pts;
+}
+function blob(g, cx, cy, r, biome) { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (dx * dx + dy * dy > r * r) continue; const c = cx + dx, rw = cy + dy; if (c >= 0 && c < W && rw >= 0 && rw < H) g[rw * W + c] = biome; } }
+function generateBiomes(spawns) {
   const g = new Array(W * H); const seeds = [];
-  for (let i = 0; i < 14; i++) seeds.push({ x: Math.random() * W, y: Math.random() * H, b: i % 3 });
+  const nSeed = 40; for (let i = 0; i < nSeed; i++) seeds.push({ x: Math.random() * W, y: Math.random() * H, b: i % 3 });
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) { let best = 1e9, b = 1; for (const s of seeds) { const d = (s.x - c) ** 2 + (s.y - r) ** 2; if (d < best) { best = d; b = s.b; } } g[r * W + c] = b; }
+  const far = (x, y, d) => spawns.every(s => dist(s.cx, s.cy, x, y) > d);
+  const place = (biome, count, rad) => { let made = 0, guard = 0; while (made < count && guard++ < 400) { const x = 12 + Math.floor(Math.random() * (W - 24)), y = 12 + Math.floor(Math.random() * (H - 24)); if (far(x, y, 22) && dist(W / 2, H / 2, x, y) > 12) { blob(g, x, y, rad, biome); made++; } } };
+  place(3, 3, 2);   // ancient forest
+  place(4, 3, 2);   // black soil
+  place(5, 3, 2);   // rich ore
+  // золотий біом — маленький, у центрі
+  const gx = Math.round(W / 2 + (Math.random() * 16 - 8)), gy = Math.round(H / 2 + (Math.random() * 16 - 8));
+  blob(g, gx, gy, 2, 6);
   return g;
 }
+
 function claim(s, owner, cx, cy, rad) { for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) { const c = cx + dx, r = cy + dy; if (c >= 0 && c < W && r >= 0 && r < H) s.grid[r * W + c] = owner; } }
 function newStats() { return { made: 0, lost: 0, built: 0, blost: 0, kills: 0, razed: 0, gathered: 0 }; }
 function newPlayer(index) {
   return {
     index, color: COLORS[index], alive: true,
-    res: { wood: 90, stone: 90, food: 70, gold: 100, tokens: 5 },
+    res: { wood: 120, stone: 120, food: 100, gold: 80, tokens: 3 },
     tech: { construction: 0, army: 0, influence: 0, mining: 0, lumber: 0, farming: 0, warfare: 0, defense: 0, scouting: 0, engineering: 0 },
-    guildLevel: 1, guildProg: 0, tokenTimer: TOKEN_TIME, tokensSpent: 0,
-    flagsOwned: 0, scoutRespawn: 0, stats: newStats(),
+    guildLevel: 1, guildProg: 0, tokenTimer: TOKEN_BASE,
+    flagsOwned: 0, scoutRespawn: 0, autoCollect: false, stats: newStats(),
   };
 }
-function warMult(p) { return 1 + 0.10 * p.tech.warfare; }
-function defMult(p) { return 1 + 0.12 * p.tech.defense; }
-function guildHpMult(p) { return 1 + 0.12 * (p.guildLevel - 1); }   // HP споруд від рівня гільдії
+function warDmgMult(p) { return 1 + 0.06 * p.tech.warfare; }
+function warHpMult(p) { return 1 + 0.05 * p.tech.warfare; }
+function guildHpMult(p) { return 1 + 0.06 * (p.guildLevel - 1); }
+function defHpMult(p) { return 1 + 0.06 * p.tech.defense; }
+function tokenCooldown(p) { return TOKEN_BASE - TOKEN_STEP * p.tech.engineering; }
+function flagCapOf(p) { return FLAG_CAP[p.tech.scouting] || 0; }
+function unitMaxHp(p, type) { return Math.round(UNIT[type].hp * warHpMult(p)); }
 
-function spawnUnit(s, owner, type, x, y, scout) {
-  const def = UNIT[type] || { hp: 40 }; const p = playerOf(s, owner);
-  const hp = scout ? 40 : Math.round(def.hp * warMult(p));
-  s.units.push({ id: s.nextId++, owner, type: scout ? 'scout' : type, x, y, mx: x, my: y, hasCmd: false, hp, maxHp: hp, cd: 0, scout: !!scout });
-  if (!scout && p) p.stats.made++;
+function spawnUnit(s, owner, type, x, y) {
+  const p = playerOf(s, owner); const def = UNIT[type];
+  const hp = unitMaxHp(p, type);
+  s.units.push({ id: s.nextId++, owner, type, x, y, mx: x, my: y, hasCmd: false, hp, maxHp: hp, cd: 0, lastHit: -99, lastAtk: -99, hx: 0, hy: 1 });
+  if (p) p.stats.made++;
 }
-function buildingMaxHp(p, type) { const def = BUILD[type]; if (type === 'landmine') return 1; if (type === 'flag') return FLAG.hp; return Math.round(def.hp * defMult(p) * guildHpMult(p)); }
+function spawnScout(s, owner, x, y) { s.units.push({ id: s.nextId++, owner, type: 'scout', scout: true, x, y, mx: x, my: y, hasCmd: false, hp: 40, maxHp: 40, cd: 0, hx: 0, hy: 1 }); }
+function buildingMaxHp(p, type) { if (type === 'landmine') return MINE.hp; return Math.round(BUILD[type].hp * defHpMult(p) * guildHpMult(p)); }
 function addBuilding(s, owner, type, cx, cy, flagId) {
-  const p = playerOf(s, owner);
+  const p = playerOf(s, owner); const def = BUILD[type];
   const maxHp = buildingMaxHp(p, type);
-  const b = { id: s.nextId++, owner, type, cx, cy, hp: maxHp, maxHp, baseHp: BUILD[type].hp, cd: 0 };
+  const b = { id: s.nextId++, owner, type, cx, cy, hp: maxHp, maxHp, cd: 0, lastHit: -99 };
   if (type === 'barracks') b.queue = [];
-  if (BUILD[type].res) { b.timer = COLLECT_TIME; b.ready = false; b.amount = 0; }
+  if (def.res) { const biome = s.biomes[cy * W + cx]; const gold = (type === 'mine' && biome === 6); b.resKind = gold ? 'gold' : def.res; b.base = gold ? GOLD_BASE : BATCH_BASE; b.biome = biome; b.timer = COLLECT_TIME; b.ready = false; b.amount = 0; }
   if (type === 'flag') { b.slots = FLAG.slots; b.used = 0; }
+  if (type === 'landmine') { b.arm = MINE.arm; b.armed = false; }
   if (flagId != null) b.flag = flagId;
   s.buildings.push(b);
-  claim(s, owner, cx, cy, type === 'guild' ? 2 : type === 'flag' ? 1 : 1);
+  if (type !== 'landmine') claim(s, owner, cx, cy, type === 'guild' ? 2 : type === 'flag' ? 1 : 1);
   if (type !== 'guild' && p) p.stats.built++;
   return b;
 }
 function initGame(room) {
-  const s = { W, H, biomes: generateBiomes(), grid: new Array(W * H).fill(-1), units: [], buildings: [], players: [], nextId: 1, winner: null, t: 0, weather: 'clear', weatherTimer: 40, shots: [] };
-  room.players.forEach(p => { s.players.push(newPlayer(p.index)); const b = BASES[p.index]; addBuilding(s, p.index, 'guild', b.cx, b.cy); spawnUnit(s, p.index, 'scout', b.cx, b.cy - 1, true); });
+  const spawns = genSpawns(room.players.length);
+  const s = { W, H, spawns, biomes: generateBiomes(spawns), grid: new Array(W * H).fill(-1), units: [], buildings: [], players: [], nextId: 1, winner: null, t: 0, peace: PEACE_TIME, weather: 'clear', weatherTimer: 40, shots: [] };
+  room.players.forEach((p, i) => { s.players.push(newPlayer(p.index)); const b = spawns[i]; addBuilding(s, p.index, 'guild', b.cx, b.cy); });   // без розвідника на старті
   room.state = s; room.lastGrid = {}; room.debugFog = false;
 }
 
-function barracksOf(s, owner) { return s.buildings.filter(b => b.owner === owner && b.type === 'barracks'); }
-function armyCap(s, owner) { return barracksOf(s, owner).length * ARMY_PER_BARRACKS; }
-function armyCount(s, owner) { let n = 0; for (const u of s.units) if (u.owner === owner && !u.scout) n++; for (const b of barracksOf(s, owner)) n += b.queue.length; return n; }
-function flagCount(s, owner) { let n = 0; for (const b of s.buildings) if (b.owner === owner && b.type === 'flag') n++; const p = playerOf(s, owner); return n + (p ? p.flagsOwned : 0); }
+function barracksOf(s, o) { return s.buildings.filter(b => b.owner === o && b.type === 'barracks'); }
+function workshopsOf(s, o) { return s.buildings.filter(b => b.owner === o && b.type === 'workshop' && b.hp > 0); }
+function armyCap(s, o) { return barracksOf(s, o).length * ARMY_PER_BARRACKS; }
+function armyCount(s, o) { let n = 0; for (const u of s.units) if (u.owner === o && !u.scout) n++; for (const b of barracksOf(s, o)) n += (b.queue ? b.queue.length : 0); return n; }
+function hasCommander(s, o) { if (s.units.some(u => u.owner === o && u.type === 'commander')) return true; for (const b of barracksOf(s, o)) if (b.queue && b.queue.some(q => q.type === 'commander')) return true; return false; }
+function flagCount(s, o) { let n = 0; for (const b of s.buildings) if (b.owner === o && b.type === 'flag') n++; const p = playerOf(s, o); return n + (p ? p.flagsOwned : 0); }
+function mineCount(s, o) { let n = 0; for (const b of s.buildings) if (b.owner === o && b.type === 'landmine') n++; return n; }
 function isNight(s) { return (s.t % DAY_CYCLE) >= DAY_LEN; }
-function hasCommanderNear(s, owner, x, y) { for (const u of s.units) if (u.owner === owner && u.type === 'commander' && u.hp > 0 && dist(x, y, u.x, u.y) <= UNIT.commander.aura) return true; return false; }
+function hasCommanderNear(s, o, x, y) { for (const u of s.units) if (u.owner === o && u.type === 'commander' && u.hp > 0 && dist(x, y, u.x, u.y) <= UNIT.commander.aura) return true; return false; }
 
-function nearestEnemy(s, owner, x, y, maxR, includeScouts) {
-  let best = null, bd = maxR;
-  for (const u of s.units) { if (u.owner === owner || u.hp <= 0) continue; if (u.scout && !includeScouts) continue; const d = dist(x, y, u.x, u.y); if (d <= bd) { bd = d; best = { ref: u, x: u.x, y: u.y, dist: d, isB: false }; } }
-  for (const b of s.buildings) { if (b.owner === owner || b.hp <= 0 || b.type === 'landmine') continue; const d = dist(x, y, b.cx, b.cy); if (d <= bd) { bd = d; best = { ref: b, x: b.cx, y: b.cy, dist: d, isB: true }; } }
-  return best;
-}
-function credit(s, attacker, isB) { const p = playerOf(s, attacker); if (!p) return; if (isB) p.stats.razed++; else p.stats.kills++; }
-function applyDamage(s, attacker, tgt, dmg, splash) {
-  const px = tgt.x, py = tgt.y; const was = tgt.ref.hp > 0; tgt.ref.hp -= dmg;
-  if (was && tgt.ref.hp <= 0) credit(s, attacker, tgt.isB);
-  if (splash > 0) for (const u of s.units) { if (u.owner === attacker || u.hp <= 0 || u.scout || u === tgt.ref) continue; if (dist(px, py, u.x, u.y) <= splash) { const w = u.hp > 0; u.hp -= dmg * 0.6; if (w && u.hp <= 0) credit(s, attacker, false); } }
+function nearestEnemyUnit(s, o, x, y, maxR) { let best = null, bd = maxR; for (const u of s.units) { if (u.owner === o || u.hp <= 0 || u.scout) continue; const d = dist(x, y, u.x, u.y); if (d <= bd) { bd = d; best = { ref: u, x: u.x, y: u.y, dist: d, isB: false }; } } return best; }
+function nearestEnemyBuilding(s, o, x, y, maxR) { let best = null, bd = maxR; for (const b of s.buildings) { if (b.owner === o || b.hp <= 0 || b.type === 'landmine') continue; const d = dist(x, y, b.cx, b.cy); if (d <= bd) { bd = d; best = { ref: b, x: b.cx, y: b.cy, dist: d, isB: true }; } } return best; }
+function nearestEnemyAny(s, o, x, y, maxR) { const u = nearestEnemyUnit(s, o, x, y, maxR); const b = nearestEnemyBuilding(s, o, x, y, maxR); if (u && b) return u.dist <= b.dist ? u : b; return u || b; }
+
+function credit(s, atk, isB) { const p = playerOf(s, atk); if (!p) return; if (isB) p.stats.razed++; else p.stats.kills++; }
+function hitBuilding(b, s) { b.lastHit = s.t; }
+function applyDamage(s, atk, tgt, dmg, splash, splashPct) {
+  const px = tgt.x, py = tgt.y; const was = tgt.ref.hp > 0;
+  tgt.ref.hp -= dmg; if (tgt.isB) tgt.ref.lastHit = s.t; else tgt.ref.lastHit = s.t;
+  if (was && tgt.ref.hp <= 0) credit(s, atk, tgt.isB);
+  if (splash > 0) { const sd = dmg * (splashPct || 0.6); for (const u of s.units) { if (u.owner === atk || u.hp <= 0 || u.scout || u === tgt.ref) continue; if (dist(px, py, u.x, u.y) <= splash) { const w = u.hp > 0; u.hp -= sd; u.lastHit = s.t; if (w && u.hp <= 0) credit(s, atk, false); } } }
 }
 
 function step(room) {
   const s = room.state; if (!s || s.winner !== null) return;
   s.t += DT; s.shots = [];
+  if (s.peace > 0) s.peace = Math.max(0, s.peace - DT);
+  const peace = s.peace > 0;
   s.weatherTimer -= DT; if (s.weatherTimer <= 0) { s.weather = Math.random() < 0.35 ? 'rain' : 'clear'; s.weatherTimer = 30 + Math.random() * 40; }
   const speedMul = s.weather === 'rain' ? 0.7 : 1;
 
+  // економіка / жетони / відродження розвідника
   for (const p of s.players) {
     if (!p.alive) continue;
-    p.res.gold += p.guildLevel * 0.8 * DT;                       // невеликий пасивний дохід від гільдії
-    p.tokenTimer -= DT * (1 + 0.25 * p.tech.engineering);
-    if (p.tokenTimer <= 0) { p.res.tokens += 1; p.tokenTimer = TOKEN_TIME; }
-    if (p.scoutRespawn > 0) { p.scoutRespawn -= DT; if (p.scoutRespawn <= 0 && !s.units.some(u => u.owner === p.index && u.scout)) { const g = s.buildings.find(b => b.owner === p.index && b.type === 'guild'); if (g) spawnUnit(s, p.index, 'scout', g.cx, g.cy - 1, true); } }
+    p.res.gold += (0.30 + 0.10 * p.guildLevel) * DT;
+    p.tokenTimer -= DT; if (p.tokenTimer <= 0) { p.res.tokens += 1; p.tokenTimer = tokenCooldown(p); }
+    if (p.scoutRespawn > 0) { p.scoutRespawn -= DT; if (p.scoutRespawn <= 0 && p.tech.scouting >= 1 && !s.units.some(u => u.owner === p.index && u.scout)) { const g = s.buildings.find(b => b.owner === p.index && b.type === 'guild'); if (g) spawnScout(s, p.index, g.cx, g.cy - 1); } }
   }
-  // активний збір: ресурсні споруди накопичують «пакет», а тоді «!»
+  // ресурсні споруди
   for (const b of s.buildings) {
-    const def = BUILD[b.type]; if (!def.res) continue;
-    const p = playerOf(s, b.owner); if (!p || !p.alive) continue;
-    if (!b.ready) { b.timer -= DT; if (b.timer <= 0) { const biome = s.biomes[b.cy * W + b.cx]; const tech = p.tech[def.kind === 'mine' ? 'mining' : def.kind === 'lumber' ? 'lumber' : 'farming']; b.amount = Math.round(BATCH_BASE * BIOME_MULT[biome][def.kind] * (1 + 0.20 * tech)); b.ready = true; } }
+    if (!b.resKind) continue; const p = playerOf(s, b.owner); if (!p || !p.alive) continue;
+    if (!b.ready) { b.timer -= DT; if (b.timer <= 0) { const kind = BUILD[b.type].kind; const techLvl = p.tech[kind === 'mine' ? 'mining' : kind === 'lumber' ? 'lumber' : 'farming']; const mult = (b.resKind === 'gold') ? 1 : BIOME_MULT[b.biome][kind]; b.amount = Math.round(b.base * mult * (1 + 0.12 * techLvl)); b.ready = true; } }
+    if (b.ready && p.autoCollect) { p.res[b.resKind] += b.amount; p.stats.gathered += b.amount; b.ready = false; b.amount = 0; b.timer = COLLECT_TIME; }
   }
   // черга виробництва
   for (const b of s.buildings) {
-    if (b.type !== 'barracks' || !b.queue.length) continue;
+    if (b.type !== 'barracks' || !b.queue || !b.queue.length) continue;
     const q = b.queue[0]; q.time -= DT;
     if (q.time <= 0) { const offs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [2, 0], [0, 2]]; let sx = b.cx, sy = b.cy; for (const [dx, dy] of offs) { const c = b.cx + dx, r = b.cy + dy; if (c >= 0 && c < W && r >= 0 && r < H) { sx = c; sy = r; break; } } spawnUnit(s, b.owner, q.type, sx, sy); b.queue.shift(); }
   }
-  // вежі/пушки/міни
-  for (const b of s.buildings) {
-    b.cd = Math.max(0, b.cd - DT); const def = BUILD[b.type];
-    if ((b.type === 'tower' || b.type === 'cannon') && b.cd <= 0) { const t = nearestEnemy(s, b.owner, b.cx, b.cy, def.range, false); if (t) { applyDamage(s, b.owner, t, def.dmg, def.splash || 0); b.cd = def.cd; s.shots.push({ x: b.cx, y: b.cy, tx: t.x, ty: t.y, k: b.type === 'cannon' ? 'ball' : 'arrow' }); } }
-    if (b.type === 'landmine') { let boom = false; for (const u of s.units) { if (u.owner === b.owner || u.hp <= 0 || u.scout) continue; if (dist(b.cx, b.cy, u.x, u.y) <= def.radius) { boom = true; break; } } if (boom) { for (const u of s.units) { if (u.owner === b.owner || u.hp <= 0 || u.scout) continue; if (dist(b.cx, b.cy, u.x, u.y) <= def.radius) { const w = u.hp > 0; u.hp -= def.dmg; if (w && u.hp <= 0) credit(s, b.owner, false); } } b.hp = 0; } }
+  // пасивний ремонт споруд
+  for (const b of s.buildings) { if (b.type === 'landmine') continue; if (b.hp < b.maxHp && s.t - b.lastHit >= REPAIR_DELAY) b.hp = Math.min(b.maxHp, b.hp + REPAIR_PER_SEC * DT); }
+
+  // мапа стін для колізій
+  const wallCell = new Map();
+  for (const b of s.buildings) if (b.type === 'wall' && b.hp > 0) wallCell.set(b.cy * W + b.cx, b.owner);
+
+  if (!peace) {
+    // вежі / пушки
+    for (const b of s.buildings) {
+      b.cd = Math.max(0, b.cd - DT); const def = BUILD[b.type];
+      if ((b.type === 'tower' || b.type === 'cannon') && b.cd <= 0) { const t = nearestEnemyAny(s, b.owner, b.cx, b.cy, def.range); if (t) { let dmg = def.dmg; if (t.isB) dmg *= 1; applyDamage(s, b.owner, t, dmg, def.splash || 0, def.splashPct); b.cd = def.cd; s.shots.push({ x: b.cx, y: b.cy, tx: t.x, ty: t.y, k: b.type === 'cannon' ? 'ball' : 'arrow' }); } }
+    }
+    // міни
+    for (const b of s.buildings) {
+      if (b.type !== 'landmine') continue;
+      if (!b.armed) { b.arm -= DT; if (b.arm <= 0) b.armed = true; continue; }
+      let direct = null, dd = MINE.trigger;
+      for (const u of s.units) { if (u.owner === b.owner || u.hp <= 0 || u.scout) continue; const d = dist(b.cx, b.cy, u.x, u.y); if (d <= dd) { dd = d; direct = u; } }
+      if (direct) {
+        if (MINE_LETHAL.has(direct.type)) { const w = direct.hp > 0; direct.hp = 0; if (w) credit(s, b.owner, false); }
+        else { const w = direct.hp > 0; direct.hp -= MINE.heavy; direct.lastHit = s.t; if (w && direct.hp <= 0) credit(s, b.owner, false); }
+        for (const u of s.units) { if (u.owner === b.owner || u.hp <= 0 || u.scout || u === direct) continue; const d = dist(b.cx, b.cy, u.x, u.y); if (d <= MINE.boom) { const dm = d <= 1.4 ? 80 : 40; const w = u.hp > 0; u.hp -= dm; u.lastHit = s.t; if (w && u.hp <= 0) credit(s, b.owner, false); } }
+        b.hp = 0;
+      }
+    }
   }
+
   // юніти
   for (const u of s.units) {
     u.cd = Math.max(0, u.cd - DT);
-    if (u.scout) { if (u.hasCmd) { if (dist(u.x, u.y, u.mx, u.my) <= 0.15) { u.x = u.mx; u.y = u.my; u.hasCmd = false; } else moveTo(u, [u.mx, u.my], 3.4 * speedMul + 0.4 * playerOf(s, u.owner).tech.scouting); } continue; }
+    if (u.scout) { if (u.hasCmd) { const p = playerOf(s, u.owner); const sp = SCOUT_SPEED[p.tech.scouting] || 3.6; if (dist(u.x, u.y, u.mx, u.my) <= 0.15) { u.x = u.mx; u.y = u.my; u.hasCmd = false; } else moveUnit(s, u, [u.mx, u.my], sp * speedMul, wallCell); } continue; }
     const def = UNIT[u.type]; const p = playerOf(s, u.owner);
-    const tgt = nearestEnemy(s, u.owner, u.x, u.y, Math.max(def.range, def.aggro) + 0.5, true);
-    let attacked = false;
-    if (tgt && tgt.dist <= def.range + 0.05) {
-      if (u.cd <= 0) {
-        let dmg = def.dmg * warMult(p);
-        if (hasCommanderNear(s, u.owner, u.x, u.y)) dmg *= (1 + UNIT.commander.auraBonus);   // аура командира
-        if (def.vsBuilding && tgt.isB) dmg *= def.vsBuilding;
-        if (!tgt.isB && !tgt.ref.scout) dmg *= rpsMult(u.type, tgt.ref.type);
-        applyDamage(s, u.owner, tgt, dmg, def.splash); u.cd = def.cd;
-        if (def.range > 1.6) s.shots.push({ x: u.x, y: u.y, tx: tgt.x, ty: tgt.y, k: u.type === 'mage' ? 'magic' : u.type === 'catapult' ? 'ball' : 'arrow' });
-      }
+
+    // священник — лікування (не переслідує, рух лише за командою)
+    if (u.type === 'priest') { if (u.hasCmd && !peace) { if (dist(u.x, u.y, u.mx, u.my) <= 0.15) { u.x = u.mx; u.y = u.my; u.hasCmd = false; } else moveUnit(s, u, [u.mx, u.my], def.speed * speedMul, wallCell); } else if (u.hasCmd && peace) { if (dist(u.x, u.y, u.mx, u.my) <= 0.15) { u.hasCmd = false; } } priestHeal(s, u, p); continue; }
+    // командир — тільки рух за командою, аура окремо
+    if (u.type === 'commander') { if (u.hasCmd) { if (peace) { if (dist(u.x, u.y, u.mx, u.my) <= 0.15) u.hasCmd = false; } else { if (dist(u.x, u.y, u.mx, u.my) <= 0.15) { u.x = u.mx; u.y = u.my; u.hasCmd = false; } else moveUnit(s, u, [u.mx, u.my], def.speed * speedMul, wallCell); } } continue; }
+
+    if (peace) { if (u.hasCmd && dist(u.x, u.y, u.mx, u.my) <= 0.15) u.hasCmd = false; continue; }  // мир: армія не рухається/не б'ється
+
+    let tgt = null, attacked = false;
+    if (u.type === 'ram') tgt = nearestEnemyBuilding(s, u.owner, u.x, u.y, Math.max(def.range, def.aggro));
+    else tgt = nearestEnemyAny(s, u.owner, u.x, u.y, Math.max(def.range, def.aggro));
+    if (tgt && tgt.dist <= def.range + 0.2 && u.cd <= 0) {
+      let dmg = unitDamage(s, u, p, tgt.isB);
+      applyDamage(s, u.owner, tgt, dmg, tgt.isB ? 0 : (def.splash || 0), def.splashPct); u.cd = def.cd; u.lastAtk = s.t;
+      if (def.range > 1.6) s.shots.push({ x: u.x, y: u.y, tx: tgt.x, ty: tgt.y, k: u.type === 'mage' ? 'magic' : u.type === 'catapult' ? 'ball' : 'arrow' });
       attacked = true;
     }
     if (!attacked) {
       let dest = null;
       if (u.hasCmd) { const d = dist(u.x, u.y, u.mx, u.my); if (d <= 0.15) { u.x = u.mx; u.y = u.my; u.hasCmd = false; } else dest = [u.mx, u.my]; }
-      if (!dest && tgt && tgt.dist <= def.aggro && tgt.dist > def.range + 0.4) dest = [tgt.x, tgt.y];
-      if (dest) moveTo(u, dest, def.speed * speedMul);
+      if (!dest && tgt && tgt.dist <= def.aggro && tgt.dist > def.range + 0.1) dest = [tgt.x, tgt.y];
+      if (dest) moveUnit(s, u, dest, def.speed * speedMul, wallCell);
     }
   }
-  separate(s);   // розлипання юнітів
-  // мертві юніти (+ відродження розвідника)
+  separate(s);
+
+  // прибирання мертвих
   const kept = [];
   for (const u of s.units) { if (u.hp > 0) { kept.push(u); continue; } if (u.scout) { const p = playerOf(s, u.owner); if (p) p.scoutRespawn = SCOUT_RESPAWN; } else { const p = playerOf(s, u.owner); if (p) p.stats.lost++; } }
   s.units = kept;
-  // мертві споруди (+ прибирання залежних від прапора)
   const deadGuilds = [], deadFlags = [];
   s.buildings = s.buildings.filter(b => { if (b.hp > 0) return true; const p = playerOf(s, b.owner); if (p) p.stats.blost++; if (b.type === 'guild') deadGuilds.push(b.owner); if (b.type === 'flag') deadFlags.push(b.id); return false; });
   if (deadFlags.length) s.buildings = s.buildings.filter(b => !(b.flag != null && deadFlags.includes(b.flag)));
-  for (const owner of deadGuilds) { const p = playerOf(s, owner); if (p) p.alive = false; s.units = s.units.filter(u => u.owner !== owner); s.buildings = s.buildings.filter(b => b.owner !== owner); }
-  for (const u of s.units) { if (u.scout) continue; const c = Math.round(u.x), r = Math.round(u.y); if (c >= 0 && c < W && r >= 0 && r < H) s.grid[r * W + c] = u.owner; }
+  for (const o of deadGuilds) { const p = playerOf(s, o); if (p) p.alive = false; s.units = s.units.filter(u => u.owner !== o); s.buildings = s.buildings.filter(b => b.owner !== o); }
+  for (const u of s.units) { if (u.scout) continue; const c = Math.round(u.x), r = Math.round(u.y); if (c >= 0 && c < W && r >= 0 && r < H && s.grid[r * W + c] === -1) s.grid[r * W + c] = u.owner; }
 
-  if (!room.debug) { const alive = s.players.filter(p => p.alive); if (alive.length <= 1) return finishGame(room, alive.length === 1 ? alive[0].index : -1); }
+  if (!room.debug) { const alive = s.players.filter(p => p.alive); if (alive.length <= 1 && s.players.length > 1) return finishGame(room, alive.length === 1 ? alive[0].index : -1); }
   broadcast(room);
 }
-function moveTo(u, dest, speed) { if (!dest) return; const dx = dest[0] - u.x, dy = dest[1] - u.y, d = Math.hypot(dx, dy); if (d > 0.01) { const s = Math.min(1, speed * DT / d); u.x = clamp(u.x + dx * s, 0, W - 1); u.y = clamp(u.y + dy * s, 0, H - 1); } }
+function unitDamage(s, u, p, tgtIsB) {
+  if (u.type === 'ram') return tgtIsB ? 24 : 0;
+  let d = UNIT[u.type].dmg * warDmgMult(p);
+  if (hasCommanderNear(s, u.owner, u.x, u.y)) d *= (1 + UNIT.commander.auraBonus);
+  if (tgtIsB) d *= (u.type === 'catapult') ? 1.0 : BUILD_DMG_UNIT;
+  return d;
+}
+function priestHeal(s, u, p) {
+  if (u.cd > 0) { u.cd = Math.max(0, u.cd - 0); }
+  if (u._hcd === undefined) u._hcd = 0; u._hcd = Math.max(0, u._hcd - DT); if (u._hcd > 0) return;
+  const battleMed = p.tech.army >= 5;
+  let best = null, bd = UNIT.priest.healRange;
+  for (const o of s.units) { if (o.owner !== u.owner || o === u || o.hp <= 0 || o.scout) continue; if (o.type === 'priest' || o.type === 'commander') continue; if (o.hp >= o.maxHp) continue; const d = dist(u.x, u.y, o.x, o.y); if (d <= bd) { bd = d; best = o; } }
+  if (!best) return;
+  const inCombat = (s.t - best.lastHit < 4) || (s.t - best.lastAtk < 4);
+  if (!battleMed && inCombat) return;               // без бойової медицини — тільки поза боєм
+  const amount = battleMed ? (inCombat ? 3 : 6) : 6;
+  best.hp = Math.min(best.maxHp, best.hp + amount); u._hcd = UNIT.priest.healCd;
+}
+function moveUnit(s, u, dest, speed, wallCell) {
+  if (!dest) return; const dx = dest[0] - u.x, dy = dest[1] - u.y, d = Math.hypot(dx, dy); if (d <= 0.01) return;
+  const step = Math.min(1, speed * DT / d); let nx = clamp(u.x + dx * step, 0, W - 1), ny = clamp(u.y + dy * step, 0, H - 1);
+  const cell = Math.round(ny) * W + Math.round(nx); const wo = wallCell.get(cell);
+  if (wo != null && wo !== u.owner) { const cell2 = Math.round(u.y) * W + Math.round(nx); const cell3 = Math.round(ny) * W + Math.round(u.x); // спробувати ковзання вздовж стіни
+    if (!(wallCell.get(cell2) != null && wallCell.get(cell2) !== u.owner)) ny = u.y; else if (!(wallCell.get(cell3) != null && wallCell.get(cell3) !== u.owner)) nx = u.x; else return; }
+  u.x = nx; u.y = ny;
+}
 function separate(s) {
   const arr = s.units.filter(u => !u.scout && u.hp > 0);
   for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
@@ -217,48 +331,52 @@ function separate(s) {
   }
 }
 
-function visibleCells(s, owner) {
-  const vis = new Uint8Array(W * H);
-  const night = isNight(s) ? 0.62 : 1;
+function visibleCells(s, o) {
+  const vis = new Uint8Array(W * H); const night = isNight(s) ? 0.62 : 1;
   const mark = (cx, cy, rr) => { const r = Math.max(2, Math.round(rr * night)), r2 = r * r; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (dx * dx + dy * dy > r2) continue; const c = (cx | 0) + dx, rw = (cy | 0) + dy; if (c >= 0 && c < W && rw >= 0 && rw < H) vis[rw * W + c] = 1; } };
-  const scoutR = 9 + 1.6 * playerOf(s, owner).tech.scouting;
-  for (const u of s.units) if (u.owner === owner) mark(u.x, u.y, u.scout ? scoutR : 4);
-  for (const b of s.buildings) if (b.owner === owner) mark(b.cx, b.cy, b.type === 'guild' ? 7 : b.type === 'flag' ? FLAG.vision : 5);
+  const p = playerOf(s, o); const scoutR = SCOUT_VISION[p.tech.scouting] || 0;
+  for (const u of s.units) if (u.owner === o) mark(u.x, u.y, u.scout ? scoutR : 4);
+  for (const b of s.buildings) if (b.owner === o) mark(b.cx, b.cy, b.type === 'guild' ? 7 : b.type === 'flag' ? FLAG.vision : b.type === 'landmine' ? 0 : 5);
   return vis;
 }
-function serializeEntities(s, owner, full, vis) {
+function mineVisible(s, o, mineB) {   // ворожа міна видима лише в радіусі детекції розвідника
+  const p = playerOf(s, o); const det = MINE_DETECT[p.tech.scouting] || 0; if (det <= 0) return false;
+  for (const u of s.units) if (u.owner === o && u.scout && dist(u.x, u.y, mineB.cx, mineB.cy) <= det) return true;
+  return false;
+}
+function serializeEntities(s, o, full, vis) {
   const seen = (c, r) => full || vis[r * W + c] === 1;
-  const me = playerOf(s, owner) || s.players[0];
+  const meP = playerOf(s, o) || s.players[0];
   const units = [];
   for (const u of s.units) {
-    if (u.scout) { units.push({ i: u.id, o: u.owner, t: 'scout', x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 1 }); continue; }  // розвідники видимі всім
-    if (u.owner !== owner && !full && !seen(Math.round(u.x), Math.round(u.y))) continue;
+    if (u.scout) { units.push({ i: u.id, o: u.owner, t: 'scout', x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 1 }); continue; }
+    if (u.owner !== o && !full && !seen(Math.round(u.x), Math.round(u.y))) continue;
     units.push({ i: u.id, o: u.owner, t: u.type, x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 0 });
   }
   const builds = [];
   for (const b of s.buildings) {
-    if (b.type === 'landmine' && b.owner !== owner && !full) continue;
-    if (b.owner !== owner && !full && !seen(b.cx, b.cy)) continue;
-    const o = { i: b.id, o: b.owner, t: b.type, x: b.cx, y: b.cy, h: Math.round(b.hp), m: b.maxHp };
-    if (b.type === 'guild') { const gp = playerOf(s, b.owner); o.gl = gp ? gp.guildLevel : 1; }
-    if (b.type === 'barracks' && b.owner === owner) { o.q = b.queue.length; if (b.queue.length) { const f = b.queue[0]; o.prog = 1 - f.time / f.total; } }
-    if (BUILD[b.type].res && b.owner === owner) { o.rd = b.ready ? 1 : 0; o.am = b.amount; o.tp = b.ready ? 1 : 1 - b.timer / COLLECT_TIME; o.rk = BUILD[b.type].res; }
-    builds.push(o);
+    if (b.type === 'landmine') { if (b.owner === o) { builds.push({ i: b.id, o: b.owner, t: 'landmine', x: b.cx, y: b.cy, h: Math.round(b.hp), m: b.maxHp, arm: b.armed ? 0 : Math.ceil(b.arm) }); } else if (full || mineVisible(s, o, b)) { builds.push({ i: b.id, o: b.owner, t: 'landmine', x: b.cx, y: b.cy, h: Math.round(b.hp), m: b.maxHp, en: 1 }); } continue; }
+    if (b.owner !== o && !full && !seen(b.cx, b.cy)) continue;
+    const ob = { i: b.id, o: b.owner, t: b.type, x: b.cx, y: b.cy, h: Math.round(b.hp), m: b.maxHp };
+    if (b.type === 'guild') { const gp = playerOf(s, b.owner); ob.gl = gp ? gp.guildLevel : 1; }
+    if (b.type === 'barracks' && b.owner === o) { ob.q = b.queue.length; if (b.queue.length) { const f = b.queue[0]; ob.prog = 1 - f.time / f.total; } }
+    if (b.resKind && b.owner === o) { ob.rd = b.ready ? 1 : 0; ob.am = b.amount; ob.tp = b.ready ? 1 : 1 - b.timer / COLLECT_TIME; ob.rk = b.resKind; }
+    builds.push(ob);
   }
   const shots = [];
-  for (const sh of s.shots) if (full || (vis[(sh.y | 0) * W + (sh.x | 0)] === 1) || (vis[(sh.ty | 0) * W + (sh.tx | 0)] === 1)) shots.push(sh);
+  for (const sh of s.shots) if (full || vis[(sh.y | 0) * W + (sh.x | 0)] === 1 || vis[(sh.ty | 0) * W + (sh.tx | 0)] === 1) shots.push(sh);
   return {
-    winner: s.winner, units, buildings: builds, shots, weather: s.weather, night: isNight(s),
-    me: { index: me.index, color: me.color, alive: me.alive, res: roundRes(me.res), tech: me.tech, guildLevel: me.guildLevel, guildProg: me.guildProg, army: armyCount(s, owner), cap: armyCap(s, owner), flags: me.flagsOwned, flagsTotal: flagCount(s, owner) },
+    winner: s.winner, peace: Math.ceil(s.peace), units, buildings: builds, shots, weather: s.weather, night: isNight(s),
+    me: { index: meP.index, color: meP.color, alive: meP.alive, res: roundRes(meP.res), tech: meP.tech, guildLevel: meP.guildLevel, guildProg: meP.guildProg, army: armyCount(s, o), cap: armyCap(s, o), flags: meP.flagsOwned, flagsTotal: flagCount(s, o), flagCap: flagCapOf(meP), autoCollect: meP.autoCollect, workshops: workshopsOf(s, o).length, mines: mineCount(s, o), hasScout: s.units.some(u => u.owner === o && u.scout), hasCommander: hasCommander(s, o) },
     players: s.players.map(p => ({ index: p.index, color: p.color, alive: p.alive })),
   };
 }
 function r2(v) { return Math.round(v * 100) / 100; }
 function roundRes(r) { const o = {}; for (const k in r) o[k] = Math.floor(r[k]); return o; }
-function gridFor(s, owner, full, vis) { const out = new Array(W * H); for (let i = 0; i < W * H; i++) { const o = s.grid[i]; out[i] = full ? o : (vis[i] ? o : (o === owner ? o : -2)); } return out; }
-function sendState(sock, room, owner, full, key) {
-  const s = room.state; const vis = full ? null : visibleCells(s, owner);
-  const ent = serializeEntities(s, owner, full, vis); const g = gridFor(s, owner, full, vis);
+function gridFor(s, o, full, vis) { const out = new Array(W * H); for (let i = 0; i < W * H; i++) { const g = s.grid[i]; out[i] = full ? g : (vis[i] ? g : (g === o ? g : -2)); } return out; }
+function sendState(sock, room, o, full, key) {
+  const s = room.state; const vis = full ? null : visibleCells(s, o);
+  const ent = serializeEntities(s, o, full, vis); const g = gridFor(s, o, full, vis);
   const last = room.lastGrid[key];
   if (!last) ent.gridFull = g; else { const diff = []; for (let i = 0; i < g.length; i++) if (g[i] !== last[i]) diff.push(i, g[i]); ent.gridDiff = diff; }
   room.lastGrid[key] = g; sock.emit('state', ent);
@@ -298,24 +416,24 @@ function startDebug(socket) {
   for (let i = 0; i < 4; i++) room.players.push({ id: socket.id, name: 'Імперія ' + (i + 1), index: i, color: COLORS[i], connected: true });
   socket.data.room = code; socket.data.index = 0; socket.data.debug = true; socket.join(code); initGame(room); room.started = true;
   socket.emit('joined', { code, index: 0, color: COLORS[0], host: true, debug: true });
-  socket.emit('gameStarted', { W, H, biomes: room.state.biomes, debug: true });
+  socket.emit('gameStarted', { W, H, biomes: room.state.biomes, spawns: room.state.spawns, debug: true });
   room.loop = setInterval(() => step(room), TICK_MS);
 }
 
-// перевірка місця під будівництво: повертає {ok, flag}
-function buildPlacement(s, owner, type, cx, cy) {
+function inZone(s, o, cx, cy) {
+  const me = playerOf(s, o);
+  const guild = s.buildings.find(b => b.owner === o && b.type === 'guild');
+  if (guild) { const R = INF_BASE + me.tech.influence * INF_STEP; if (cheb(cx, cy, guild.cx, guild.cy) <= R) return { ok: true, flag: null }; }
+  let best = null, bd = 1e9;
+  for (const b of s.buildings) if (b.owner === o && b.type === 'flag' && b.used < b.slots) { const d = cheb(cx, cy, b.cx, b.cy); if (d <= FLAG.radius && d < bd) { bd = d; best = b; } }
+  if (best) return { ok: true, flag: best.id };
+  return { ok: false };
+}
+function buildPlacement(s, o, type, cx, cy) {
   if (cx < 0 || cx >= W || cy < 0 || cy >= H) return { ok: false };
   if (s.buildings.some(b => b.cx === cx && b.cy === cy)) return { ok: false };
-  // не впритул до інших споруд (мін. чебишев 2)
-  if (s.buildings.some(b => cheb(b.cx, b.cy, cx, cy) <= 1)) return { ok: false, reason: 'gap' };
-  const me = playerOf(s, owner);
-  const guild = s.buildings.find(b => b.owner === owner && b.type === 'guild');
-  if (guild) { const R = INF_BASE + me.tech.influence * INF_STEP; if (cheb(cx, cy, guild.cx, guild.cy) <= R) return { ok: true, flag: null }; }
-  // або поруч із прапором (де є вільні слоти)
-  let best = null, bd = 1e9;
-  for (const b of s.buildings) if (b.owner === owner && b.type === 'flag' && b.used < b.slots) { const d = cheb(cx, cy, b.cx, b.cy); if (d <= FLAG.radius && d < bd) { bd = d; best = b; } }
-  if (best) return { ok: true, flag: best.id };
-  return { ok: false, reason: 'zone' };
+  if (type !== 'wall' && type !== 'landmine' && s.buildings.some(b => b.type !== 'landmine' && cheb(b.cx, b.cy, cx, cy) <= 1)) return { ok: false, reason: 'gap' };
+  return inZone(s, o, cx, cy);
 }
 
 io.on('connection', (socket) => {
@@ -343,7 +461,7 @@ io.on('connection', (socket) => {
     if (!room || room.host !== socket.id || room.started) return;
     if (room.players.length < 2) return socket.emit('errorMsg', 'Потрібно щонайменше 2 гравці');
     initGame(room); room.started = true;
-    io.to(room.code).emit('gameStarted', { W, H, biomes: room.state.biomes });
+    io.to(room.code).emit('gameStarted', { W, H, biomes: room.state.biomes, spawns: room.state.spawns });
     room.loop = setInterval(() => step(room), TICK_MS); broadcastLobby(room);
   });
   socket.on('switchEmpire', () => { if (!socket.data.debug) return; const room = rooms[socket.data.room]; if (!room) return; socket.data.index = (socket.data.index + 1) % room.players.length; room.lastGrid = {}; socket.emit('empireSwitched', { index: socket.data.index, color: COLORS[socket.data.index] }); });
@@ -352,66 +470,88 @@ io.on('connection', (socket) => {
 
   socket.on('command', (cmd) => {
     const room = rooms[socket.data.room]; if (!room || !room.started || !room.state || room.state.winner !== null) return;
-    const s = room.state, owner = socket.data.index, me = playerOf(s, owner); if (!me || !me.alive) return;
+    const s = room.state, o = socket.data.index, me = playerOf(s, o); if (!me || !me.alive) return;
+    const peace = s.peace > 0;
 
-    if (cmd.type === 'move') { const x = clamp(cmd.x, 0, W - 1), y = clamp(cmd.y, 0, H - 1), ids = new Set(cmd.ids || []); for (const u of s.units) if (u.owner === owner && ids.has(u.id)) { u.mx = x; u.my = y; u.hasCmd = true; } }
+    if (cmd.type === 'move') {
+      const x = clamp(cmd.x, 0, W - 1), y = clamp(cmd.y, 0, H - 1), ids = new Set(cmd.ids || []);
+      for (const u of s.units) { if (u.owner !== o || !ids.has(u.id)) continue; if (peace && !u.scout) continue; u.mx = x; u.my = y; u.hasCmd = true; }
+    }
     else if (cmd.type === 'tech') {
       const k = cmd.branch; if (!TECH_KEYS.includes(k)) return;
-      if (k === 'scouting' && me.guildLevel < 3) return;         // розвідка з рівня 3
-      const lvl = me.tech[k]; if (lvl >= 5) return; const cost = lvl + 1; if (me.res.tokens < cost) return;
-      me.res.tokens -= cost; me.tech[k] = lvl + 1; me.tokensSpent += cost;
-      me.guildProg += GUILD_PER_UPGRADE;                          // +0.8 рівня гільдії за покращення
+      const lvl = me.tech[k]; if (lvl >= 5) return; const cost = TECH_COST[lvl]; if (me.res.tokens < cost) return;
+      me.res.tokens -= cost; me.tech[k] = lvl + 1;
+      if (k === 'warfare') relevelUnits(s, me);
+      if (k === 'defense') relevelBuildings(s, me);
+      if (k === 'scouting' && lvl === 0) { if (!s.units.some(u => u.owner === o && u.scout)) { const g = s.buildings.find(b => b.owner === o && b.type === 'guild'); if (g) spawnScout(s, o, g.cx, g.cy - 1); } }
+      me.guildProg += GUILD_PER_UPGRADE;
       while (me.guildProg >= 1 && me.guildLevel < GUILD_CAP) { me.guildProg -= 1; me.guildLevel++; relevelBuildings(s, me); }
       if (me.guildLevel >= GUILD_CAP) me.guildProg = Math.min(me.guildProg, 0.999);
     }
+    else if (cmd.type === 'autoCollect') {
+      if (me.autoCollect) return; if (me.res.tokens < AUTO_COST) return; me.res.tokens -= AUTO_COST; me.autoCollect = true;
+    }
     else if (cmd.type === 'produce') {
       const type = cmd.unit, def = UNIT[type]; if (!def) return;
-      if (me.tech.army < def.army) return;
-      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === owner && bb.type === 'barracks'); if (!b) return;
-      if (armyCount(s, owner) >= armyCap(s, owner)) return;
-      if (me.res.food < def.food || me.res.gold < def.gold) return;
-      me.res.food -= def.food; me.res.gold -= def.gold; b.queue.push({ type, time: def.build, total: def.build });
+      if (me.tech.army < def.unlock) return;
+      if (def.max1 && hasCommander(s, o)) return;
+      if (def.workshop && workshopsOf(s, o).length === 0) return;
+      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === o && bb.type === 'barracks'); if (!b) return;
+      if (armyCount(s, o) >= armyCap(s, o)) return;
+      const c = def; if (me.res.food < (c.food || 0) || me.res.gold < (c.gold || 0) || (me.res.wood || 0) < (c.wood || 0) || (me.res.stone || 0) < (c.stone || 0)) return;
+      me.res.food -= (c.food || 0); me.res.gold -= (c.gold || 0); me.res.wood -= (c.wood || 0); me.res.stone -= (c.stone || 0);
+      b.queue.push({ type, time: def.build, total: def.build });
     }
     else if (cmd.type === 'build') {
       const type = cmd.build, def = BUILD[type]; if (!def || type === 'guild' || type === 'flag') return;
       if (me.tech.construction < def.construction) return;
-      const cx = cmd.cx | 0, cy = cmd.cy | 0; const pl = buildPlacement(s, owner, type, cx, cy); if (!pl.ok) return;
+      const cx = cmd.cx | 0, cy = cmd.cy | 0;
+      if (type === 'landmine') { if (!placeMineOk(s, o, cx, cy)) return; }
+      else { const pl = buildPlacement(s, o, type, cx, cy); if (!pl.ok) return; var flagId = pl.flag; }
       const c = def.cost; if ((me.res.wood || 0) < (c.wood || 0) || (me.res.stone || 0) < (c.stone || 0) || (me.res.gold || 0) < (c.gold || 0)) return;
       me.res.wood -= (c.wood || 0); me.res.stone -= (c.stone || 0); me.res.gold -= (c.gold || 0);
-      const b = addBuilding(s, owner, type, cx, cy, pl.flag);
-      if (pl.flag != null) { const fb = s.buildings.find(x => x.id === pl.flag); if (fb) fb.used++; }
+      const nb = addBuilding(s, o, type, cx, cy, type === 'landmine' ? null : flagId);
+      if (type !== 'landmine' && flagId != null) { const fb = s.buildings.find(x => x.id === flagId); if (fb) fb.used++; }
     }
     else if (cmd.type === 'collect') {
-      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === owner);
-      if (!b || !BUILD[b.type].res || !b.ready) return;
-      me.res[BUILD[b.type].res] += b.amount;
-      me.stats.gathered += b.amount;
-      b.ready = false; b.amount = 0; b.timer = COLLECT_TIME;
+      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === o);
+      if (!b || !b.resKind || !b.ready) return;
+      me.res[b.resKind] += b.amount; me.stats.gathered += b.amount; b.ready = false; b.amount = 0; b.timer = COLLECT_TIME;
     }
     else if (cmd.type === 'demolish') {
-      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === owner); if (!b || b.type === 'guild') return;
+      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === o); if (!b || b.type === 'guild') return;
       if (b.flag != null) { const fb = s.buildings.find(x => x.id === b.flag); if (fb) fb.used = Math.max(0, fb.used - 1); }
-      b.hp = 0;   // впаде на наступному тіку (прапор прибере залежні)
+      b.hp = 0;
     }
     else if (cmd.type === 'buyFlag') {
-      if (me.guildLevel < FLAG.minLevel) return;
-      if (flagCount(s, owner) >= FLAG.max) return;
+      if (flagCount(s, o) >= flagCapOf(me)) return;
       const c = FLAG.cost; if ((me.res.wood || 0) < c.wood || (me.res.stone || 0) < c.stone || (me.res.gold || 0) < c.gold) return;
       me.res.wood -= c.wood; me.res.stone -= c.stone; me.res.gold -= c.gold; me.flagsOwned++;
     }
     else if (cmd.type === 'placeFlag') {
       if (me.flagsOwned <= 0) return;
-      const sc = s.units.find(u => u.owner === owner && u.scout); if (!sc) return;
+      const sc = s.units.find(u => u.owner === o && u.scout); if (!sc) return;
       const cx = Math.round(sc.x), cy = Math.round(sc.y);
-      if (s.buildings.some(b => cheb(b.cx, b.cy, cx, cy) <= 1)) return;    // не впритул
-      const cell = s.grid[cy * W + cx]; if (cell >= 0 && cell !== owner) return;   // не на території ворога
-      me.flagsOwned--; addBuilding(s, owner, 'flag', cx, cy);
+      if (s.buildings.some(b => b.type !== 'landmine' && cheb(b.cx, b.cy, cx, cy) <= 1)) return;
+      const cell = s.grid[cy * W + cx]; if (cell >= 0 && cell !== o) return;
+      me.flagsOwned--; addBuilding(s, o, 'flag', cx, cy);
     }
   });
 
   socket.on('disconnect', () => { leaveCurrentRoom(socket); });
 });
-function relevelBuildings(s, p) { for (const b of s.buildings) { if (b.owner !== p.index || b.type === 'landmine' || b.type === 'flag') continue; const ratio = b.hp / b.maxHp; b.maxHp = buildingMaxHp(p, b.type); b.hp = Math.max(1, Math.round(b.maxHp * ratio)); } }
+
+function placeMineOk(s, o, cx, cy) {
+  if (cx < 0 || cx >= W || cy < 0 || cy >= H) return false;
+  if (s.buildings.some(b => b.cx === cx && b.cy === cy)) return false;
+  if (s.units.some(u => u.owner !== o && !u.scout && Math.round(u.x) === cx && Math.round(u.y) === cy)) return false;
+  const cell = s.grid[cy * W + cx]; if (cell >= 0 && cell !== o) return false;
+  if (mineCount(s, o) >= MINE.max) return false;
+  if (s.buildings.some(b => b.owner === o && b.type === 'landmine' && cheb(b.cx, b.cy, cx, cy) < MINE.spacing)) return false;
+  return inZone(s, o, cx, cy).ok;
+}
+function relevelBuildings(s, p) { for (const b of s.buildings) { if (b.owner !== p.index || b.type === 'landmine') continue; const ratio = b.hp / b.maxHp; b.maxHp = buildingMaxHp(p, b.type); b.hp = Math.max(1, Math.round(b.maxHp * ratio)); } }
+function relevelUnits(s, p) { for (const u of s.units) { if (u.owner !== p.index || u.scout) continue; const old = u.maxHp; u.maxHp = unitMaxHp(p, u.type); u.hp = Math.min(u.maxHp, u.hp + (u.maxHp - old)); if (u.hp < 1) u.hp = 1; } }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Чотири Імперії v5 — сервер на порту ' + PORT));
+server.listen(PORT, () => console.log('Чотири Імперії Balance v2 — сервер на порту ' + PORT));
