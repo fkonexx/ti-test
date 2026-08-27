@@ -71,7 +71,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const zi = $('zoomIn'), zo = $('zoomOut'), mu = $('muteBtn');
   if (zi) zi.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
   if (zo) zo.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
-  if (mu) mu.onclick = () => { muted = !muted; mu.textContent = muted ? '🔇' : '🔊'; if (!muted) sfxInit(); };
+  if (mu) mu.onclick = () => { muted = !muted; mu.textContent = muted ? '🔇' : '🔊'; if (muted) musicStop(); else { sfxInit(); } };
+  { const ms = $('musBtn'); if (ms) ms.onclick = () => { musicOn = !musicOn; ms.style.opacity = musicOn ? '1' : '.45'; if (musicOn) { sfxInit(); musicStart(); } else musicStop(); }; }
   setupCanvas();
 });
 function once(fn) { let u = false; return () => { if (u) return; u = true; fn(); setTimeout(() => u = false, 1200); }; }
@@ -167,7 +168,7 @@ function sendMove(col, row) { if (!sel.units.size) return; if (st.peace > 0 && !
 
 function toggle(which) { const u = which === 'unit'; const su = u && el.unitMenu.classList.contains('hidden'); const sb = !u && el.buildMenu.classList.contains('hidden'); closeMenus(); if (su) { refreshUnitMenu(); el.unitMenu.classList.remove('hidden'); } if (sb) { refreshBuildMenu(); el.buildMenu.classList.remove('hidden'); } }
 function closeMenus() { el.unitMenu.classList.add('hidden'); el.buildMenu.classList.add('hidden'); el.techPanel && el.techPanel.classList.add('hidden'); }
-function costStr(c) { const p = []; if (c.wood) p.push('🌲' + c.wood); if (c.stone) p.push('⛏' + c.stone); if (c.food) p.push('🍞' + c.food); if (c.gold) p.push('💰' + c.gold); return p.join(' '); }
+function costStr(c) { const p = []; if (c.wood) p.push(curIcon('wood','🌲') + c.wood); if (c.stone) p.push(curIcon('stone','⛏') + c.stone); if (c.food) p.push(curIcon('food','🍞') + c.food); if (c.gold) p.push(curIcon('gold','💰') + c.gold); return p.join(' '); }
 function canAfford(c) { const r = st && st.me ? st.me.res : {}; return (r.wood || 0) >= (c.wood || 0) && (r.stone || 0) >= (c.stone || 0) && (r.food || 0) >= (c.food || 0) && (r.gold || 0) >= (c.gold || 0); }
 function refreshUnitMenu() {
   const lvl = st && st.me ? st.me.tech.army : 0;
@@ -218,17 +219,30 @@ function renderTech() {
   const tk = st.me.res.tokens; el.tokens.textContent = tk;
   let html = TECH.map(([k, n, d]) => {
     const lvl = st.me.tech[k]; const stars = '★'.repeat(lvl) + '☆'.repeat(5 - lvl); const cost = TECH_COST[lvl];
-    const dis = lvl >= 5 || tk < cost; const label = lvl >= 5 ? 'МАКС' : ('−' + cost + ' 🔧');
+    const dis = lvl >= 5 || tk < cost; const label = lvl >= 5 ? 'МАКС' : ('−' + cost + ' ' + curIcon('tokens','🔧'));
     return `<div class="techrow"><div class="ti"><b>${n}</b><small>${d}</small><span class="stars">${stars}</span></div><button class="btn tbuy" data-k="${k}" ${dis ? 'disabled' : ''}>${label}</button></div>`;
   }).join('');
   const autoDis = st.me.autoCollect || tk < 5;
-  html += `<div class="techrow"><div class="ti"><b>Автозбір ресурсів</b><small>${st.me.autoCollect ? '✅ куплено — ресурси зараховуються самі' : 'збирає 100% ресурсу автоматично'}</small></div><button class="btn tbuy" data-auto="1" ${autoDis ? 'disabled' : ''}>${st.me.autoCollect ? 'КУПЛЕНО' : '−5 🔧'}</button></div>`;
+  html += `<div class="techrow"><div class="ti"><b>Автозбір ресурсів</b><small>${st.me.autoCollect ? '✅ куплено — ресурси зараховуються самі' : 'збирає 100% ресурсу автоматично'}</small></div><button class="btn tbuy" data-auto="1" ${autoDis ? 'disabled' : ''}>${st.me.autoCollect ? 'КУПЛЕНО' : '−5 ' + curIcon('tokens','🔧')}</button></div>`;
   el.techList.innerHTML = html;
   el.techList.querySelectorAll('.tbuy').forEach(b => b.onclick = () => { if (b.dataset.auto) { socket.emit('command', { type: 'autoCollect' }); } else socket.emit('command', { type: 'tech', branch: b.dataset.k }); techSig = ''; });
 }
 
 let actx = null;
-function sfxInit() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (actx && actx.state === 'suspended') actx.resume(); }
+function sfxInit() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (actx && actx.state === 'suspended') actx.resume(); if (musicOn && !muted) musicStart(); }
+let musicOn = true, musicTimer = null, musicStep = 0;
+const MUS = [220.00, 261.63, 293.66, 329.63, 392.00];   // A C D E G
+const MUS_BASS = [110.00, 130.81, 98.00, 146.83];
+function padTone(freq, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime; o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(actx.destination); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.9); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.start(t); o.stop(t + dur + 0.05); } catch (e) {} }
+function pluckTone(freq, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime; o.type = 'triangle'; o.frequency.value = freq; o.connect(g); g.connect(actx.destination); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.start(t); o.stop(t + dur + 0.05); } catch (e) {} }
+function musicNote() {
+  if (!actx || muted || !musicOn) return;
+  if (musicStep % 8 === 0) { const b = MUS_BASS[(musicStep / 8) % MUS_BASS.length]; padTone(b, 4.4, 0.045); padTone(b * 2, 4.4, 0.02); }
+  if (musicStep % 2 === 0 && Math.random() < 0.85) { const f = MUS[Math.floor(Math.random() * MUS.length)] * (Math.random() < 0.25 ? 2 : 1); pluckTone(f, 0.7, 0.032); }
+  musicStep++;
+}
+function musicStart() { if (musicTimer || !musicOn) return; musicTimer = setInterval(musicNote, 430); }
+function musicStop() { if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } }
 function tone(type, f0, f1, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.02); } catch (e) {} }
 let lastShoot = 0;
 function sfxShoot() { const n = performance.now(); if (n - lastShoot < 70) return; lastShoot = n; tone('square', 620, 240, 0.1, 0.05); }
@@ -345,8 +359,21 @@ function drawBuildings() {
   }
 }
 function drawMine(b, x, y, c) {
-  if (b.o === me.index) { ctx.fillStyle = b.arm > 0 ? '#f5c54288' : c; ctx.beginPath(); ctx.arc(x, y, CELL * 0.15, 0, 7); ctx.fill(); ctx.strokeStyle = b.arm > 0 ? '#f5c542' : c; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(x, y, CELL * 0.24, 0, 7); ctx.stroke(); ctx.setLineDash([]); if (b.arm > 0) { ctx.fillStyle = '#fff'; ctx.font = 'bold ' + Math.round(CELL * 0.4) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillText(b.arm, x, y - CELL * 0.4); ctx.textAlign = 'left'; } }
-  else { const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200); ctx.fillStyle = `rgba(255,90,90,${0.5 + pulse * 0.4})`; ctx.beginPath(); ctx.arc(x, y, CELL * 0.16, 0, 7); ctx.fill(); ctx.strokeStyle = '#ff5a5a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, CELL * 0.26, 0, 7); ctx.stroke(); ctx.font = Math.round(CELL * 0.4) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText('⚠', x, y - CELL * 0.35); ctx.textAlign = 'left'; }
+  const col = IDX[b.o]; const im = sprite(col, 'landmine');
+  const arming = (b.o === me.index) && b.arm > 0;
+  ctx.save();
+  if (arming) ctx.globalAlpha = 0.45;                     // під час активації — приглушено
+  if (im) drawSpr(im, x, y, CELL * (BSIZE.landmine || 1.0));
+  else { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, CELL * 0.15, 0, 7); ctx.fill(); ctx.strokeStyle = c; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(x, y, CELL * 0.24, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.globalAlpha = 1;
+  if (b.en) {                                             // виявлена ворожа міна — попередження
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+    ctx.strokeStyle = `rgba(255,90,90,${0.5 + pulse * 0.4})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, CELL * 0.34, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#ff8a8a'; ctx.font = Math.round(CELL * 0.42) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillText('⚠', x, y - CELL * 0.46); ctx.textAlign = 'left';
+  } else if (arming) {                                    // своя міна армується — маленький лічильник
+    ctx.fillStyle = '#f5c542'; ctx.font = 'bold ' + Math.round(CELL * 0.3) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillText(b.arm, x, y - CELL * 0.42); ctx.textAlign = 'left';
+  }
+  ctx.restore();
 }
 function drawBuildingShape(b, x, y, c) {
   ctx.save(); ctx.translate(x, y); const t = b.t;

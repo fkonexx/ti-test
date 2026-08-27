@@ -118,8 +118,15 @@ function generateBiomes(spawns) {
   place(3, 3, 2);   // ancient forest
   place(4, 3, 2);   // black soil
   place(5, 3, 2);   // rich ore
-  // золотий біом — маленький, у центрі
-  const gx = Math.round(W / 2 + (Math.random() * 16 - 8)), gy = Math.round(H / 2 + (Math.random() * 16 - 8));
+  // золотий біом — маленький, у центральній зоні, але подалі від усіх баз
+  let gx = Math.round(W / 2), gy = Math.round(H / 2), bestD = -1;
+  for (let t = 0; t < 80; t++) {
+    const cx = Math.round(W / 2 + (Math.random() * 40 - 20)), cy = Math.round(H / 2 + (Math.random() * 40 - 20));
+    if (cx < 14 || cx > W - 14 || cy < 14 || cy > H - 14) continue;
+    let md = 1e9; for (const sp of spawns) md = Math.min(md, dist(sp.cx, sp.cy, cx, cy));
+    if (md > bestD) { bestD = md; gx = cx; gy = cy; }
+    if (md >= 25) break;
+  }
   blob(g, gx, gy, 2, 6);
   return g;
 }
