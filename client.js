@@ -71,8 +71,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const zi = $('zoomIn'), zo = $('zoomOut'), mu = $('muteBtn');
   if (zi) zi.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
   if (zo) zo.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
-  if (mu) mu.onclick = () => { muted = !muted; mu.textContent = muted ? '🔇' : '🔊'; if (muted) musicStop(); else { sfxInit(); } };
-  { const ms = $('musBtn'); if (ms) ms.onclick = () => { musicOn = !musicOn; ms.style.opacity = musicOn ? '1' : '.45'; if (musicOn) { sfxInit(); musicStart(); } else musicStop(); }; }
+  if (mu) mu.onclick = () => { muted = !muted; mu.textContent = muted ? '🔇' : '🔊'; if (muted) musicStopAll(); else { sfxInit(); updateMusic(); } };
+  { const ms = $('musBtn'); if (ms) ms.onclick = () => { musicOn = !musicOn; ms.style.opacity = musicOn ? '1' : '.45'; if (musicOn) { sfxInit(); updateMusic(); } else musicStopAll(); }; }
   setupCanvas();
 });
 function once(fn) { let u = false; return () => { if (u) return; u = true; fn(); setTimeout(() => u = false, 1200); }; }
@@ -128,6 +128,7 @@ function onState(s) {
   if (!camInit) { centerOnGuild(); camInit = true; }
   updateRes(); updateArmyBtn(); updateScoutBtn(); updatePeace(); refreshCtx(); renderMarket(); renderArsenal();
   { const hi = document.getElementById('hudinfo'); if (hi) hi.textContent = '⏱ ' + fmtTime(st.t) + '  ·  📶 ' + ping + 'мс'; }
+  updateMusic();
   if (el.techPanel && !el.techPanel.classList.contains('hidden')) renderTech();
 }
 function centerOnGuild() { const g = st && st.buildings.find(b => b.o === me.index && b.t === 'guild'); if (!g) return; camX = innerWidth / 2 - (g.x * CELL + CELL / 2); camY = innerHeight / 2 - (g.y * CELL + CELL / 2); }
@@ -263,20 +264,37 @@ function renderTech() {
 }
 
 let actx = null;
-function sfxInit() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (actx && actx.state === 'suspended') actx.resume(); if (musicOn && !muted) musicStart(); }
-let musicOn = true, musicTimer = null, musicStep = 0;
-const MUS = [220.00, 261.63, 293.66, 329.63, 392.00];   // A C D E G
-const MUS_BASS = [110.00, 130.81, 98.00, 146.83];
-function padTone(freq, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime; o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(actx.destination); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.9); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.start(t); o.stop(t + dur + 0.05); } catch (e) {} }
-function pluckTone(freq, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime; o.type = 'triangle'; o.frequency.value = freq; o.connect(g); g.connect(actx.destination); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.start(t); o.stop(t + dur + 0.05); } catch (e) {} }
-function musicNote() {
-  if (!actx || muted || !musicOn) return;
-  if (musicStep % 8 === 0) { const b = MUS_BASS[(musicStep / 8) % MUS_BASS.length]; padTone(b, 4.4, 0.045); padTone(b * 2, 4.4, 0.02); }
-  if (musicStep % 2 === 0 && Math.random() < 0.85) { const f = MUS[Math.floor(Math.random() * MUS.length)] * (Math.random() < 0.25 ? 2 : 1); pluckTone(f, 0.7, 0.032); }
-  musicStep++;
+function sfxInit() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (actx && actx.state === 'suspended') actx.resume(); updateMusic(); }
+// ===== Музика з /music, синхронізована з часом гри =====
+// peace_music: 0:00–1:53 (затухає) · horn: 1:53–2:00 · war_music: 2:00+ циклічно
+let musicOn = true, musicEls = null, musicPhase = null;
+const MUSIC_VOL = 0.55, MUS_PEACE_END = 113, MUS_WAR_START = 120;
+function musicEnsure() {
+  if (musicEls) return true;
+  try {
+    musicEls = { peace: new Audio('music/peace_music.mp3'), horn: new Audio('music/horn.mp3'), war: new Audio('music/war_music.mp3') };
+    musicEls.war.loop = true;
+    for (const k in musicEls) { musicEls[k].preload = 'auto'; musicEls[k].volume = MUSIC_VOL; musicEls[k].addEventListener('error', () => {}); }
+  } catch (e) { musicEls = null; return false; }
+  return true;
 }
-function musicStart() { if (musicTimer || !musicOn) return; musicTimer = setInterval(musicNote, 430); }
-function musicStop() { if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } }
+function musicStopAll() { if (!musicEls) return; for (const k in musicEls) { try { musicEls[k].pause(); } catch (e) {} } musicPhase = null; }
+function musicPlay(k, at) { const a = musicEls[k]; try { if (typeof at === 'number' && isFinite(at) && Math.abs((a.currentTime || 0) - at) > 1.5) a.currentTime = Math.max(0, at); const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+function updateMusic() {
+  if (!musicOn || muted || !st || st.t == null) { musicStopAll(); return; }
+  if (!musicEnsure()) return;
+  const t = st.t;
+  const phase = t < MUS_PEACE_END ? 'peace' : t < MUS_WAR_START ? 'horn' : 'war';
+  if (phase !== musicPhase) {
+    for (const k in musicEls) if (k !== phase) { try { musicEls[k].pause(); } catch (e) {} }
+    if (phase === 'peace') musicPlay('peace', t);
+    else if (phase === 'horn') musicPlay('horn', t - MUS_PEACE_END);
+    else musicPlay('war');
+    musicPhase = phase;
+  }
+  if (phase === 'peace') { const ct = musicEls.peace.currentTime || 0; musicEls.peace.volume = ct < MUS_PEACE_END - 3 ? MUSIC_VOL : Math.max(0, MUSIC_VOL * (MUS_PEACE_END - ct) / 3); }
+  else if (musicEls[phase]) musicEls[phase].volume = MUSIC_VOL;
+}
 function tone(type, f0, f1, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.02); } catch (e) {} }
 let lastShoot = 0;
 function sfxShoot() { const n = performance.now(); if (n - lastShoot < 70) return; lastShoot = n; tone('square', 620, 240, 0.1, 0.05); }
