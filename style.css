@@ -233,3 +233,12 @@ body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--
 .arbar{height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;margin-bottom:10px;}
 .arbar span{display:block;height:100%;background:#ffcf6a;}
 @media (max-width:430px){ .sidepanel{padding:10px;top:52px;} .pnrow{font-size:13px;} .pnsteps button{padding:5px 6px;font-size:11px;} .pnamt{min-width:44px;} }
+
+/* ---- HUD: час гри + пінг ---- */
+#hudinfo{position:absolute;left:50%;top:calc(6px + env(safe-area-inset-top));transform:translateX(-50%);
+  font-size:12px;font-weight:700;color:var(--text);background:rgba(13,16,23,.55);border:1px solid var(--line);
+  border-radius:10px;padding:3px 10px;white-space:nowrap;pointer-events:none;letter-spacing:.3px;}
+/* ---- нічне повідомлення базару ---- */
+.mknight{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:18px 14px;margin:6px 0;
+  text-align:center;font-size:14px;line-height:1.7;opacity:.92;}
+@media (max-width:430px){ #hudinfo{font-size:11px;padding:2px 8px;} }

@@ -81,6 +81,10 @@ socket.on('connect', () => { me.id = socket.id; });
 socket.on('joined', d => { me.index = d.index; me.color = d.color; me.host = d.host; if (d.debug) { me.debug = true; return; } show('lobby'); });
 socket.on('empireSwitched', d => { me.index = d.index; me.color = d.color; clearSel(); resetFog(); camInit = false; techSig = ''; updateRes(); updateDbg(); });
 socket.on('fogToggled', d => { resetFog(); const b = document.getElementById('dbgFog'); if (b) b.textContent = d.on ? '🌫 Туман: УВІМК' : '🌫 Туман: ВИМК'; });
+let ping = 0, pingTimer = null;
+socket.on('pongCheck', (ts) => { ping = Date.now() - ts; });
+function startPing() { if (pingTimer) return; const send = () => socket.emit('pingCheck', Date.now()); send(); pingTimer = setInterval(send, 2000); }
+function fmtTime(sec) { sec = Math.max(0, Math.floor(sec || 0)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
 socket.on('lobby', d => {
   me.host = (d.host === socket.id); el.roomCode.textContent = d.code; el.playerList.innerHTML = '';
   let myReady = false, readyN = 0;
@@ -99,7 +103,7 @@ socket.on('lobby', d => {
   el.lobbyHint.textContent = `Готові: ${readyN}/${d.players.length}` + (enough ? ' — гра почнеться, коли всі натиснуть «Готово»' : ' — потрібно мінімум 2 гравці');
 });
 socket.on('errorMsg', m => alert(m));
-socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); show('game'); resize(); ensurePeaceEl(); ensurePanels(); if (me.debug) createDbgBar(); banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
+socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); show('game'); resize(); ensurePeaceEl(); ensurePanels(); startPing(); if (me.debug) createDbgBar(); banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
 socket.on('state', s => onState(s));
 socket.on('gameOver', d => showEnd(d));
 
@@ -123,6 +127,7 @@ function onState(s) {
   if (s.shots) for (const sh of s.shots) { projectiles.push({ x: sh.x, y: sh.y, tx: sh.tx, ty: sh.ty, k: sh.k, t: 0, dur: sh.k === 'ball' ? 0.35 : 0.2 }); sfxShoot(); }
   if (!camInit) { centerOnGuild(); camInit = true; }
   updateRes(); updateArmyBtn(); updateScoutBtn(); updatePeace(); refreshCtx(); renderMarket(); renderArsenal();
+  { const hi = document.getElementById('hudinfo'); if (hi) hi.textContent = '⏱ ' + fmtTime(st.t) + '  ·  📶 ' + ping + 'мс'; }
   if (el.techPanel && !el.techPanel.classList.contains('hidden')) renderTech();
 }
 function centerOnGuild() { const g = st && st.buildings.find(b => b.o === me.index && b.t === 'guild'); if (!g) return; camX = innerWidth / 2 - (g.x * CELL + CELL / 2); camY = innerHeight / 2 - (g.y * CELL + CELL / 2); }
@@ -348,7 +353,7 @@ function draw() {
   for (const id in renderU) { const r = renderU[id]; const dx = r.tx - r.x, dy = r.ty - r.y; r.x += dx * 0.22; r.y += dy * 0.22; const sp = Math.hypot(dx, dy); if (sp > 0.04) r.ang = lerpAng(r.ang, Math.atan2(dy, dx), 0.15); if (r.swing > 0) r.swing -= 1 / 60; if (r.healT > 0) r.healT -= 1 / 60; }
   darkness += ((st.night ? 0.28 : 0) - darkness) * 0.03; rain += ((st.weather === 'rain' ? 1 : 0) - rain) * 0.03;
   ctx.save(); ctx.translate(camX, camY);
-  drawTiles(); drawMines(); drawBuildings(); drawUnits(); drawProjectiles(); drawEffects();
+  drawTiles(); drawMines(); drawBuildings(); drawUnits(); drawLabels(); drawProjectiles(); drawEffects();
   if (selectMode && box && moved) { const x0 = Math.min(box.x0, box.x1) - camX, y0 = Math.min(box.y0, box.y1) - camY, w = Math.abs(box.x1 - box.x0), h = Math.abs(box.y1 - box.y0); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(x0, y0, w, h); ctx.setLineDash([]); ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(x0, y0, w, h); }
   ctx.restore();
   if (darkness > 0.01) { ctx.fillStyle = `rgba(6,10,26,${darkness})`; ctx.fillRect(0, 0, innerWidth, innerHeight); }
@@ -380,6 +385,17 @@ function drawMines() {   // нижній шар — під спорудами т
 }
 function wallConn() { const m = new Map(); for (const b of st.buildings) if (b.t === 'wall') m.set(b.y * W + b.x, b.o); return m; }
 function offscreen(x, y) { return x < -CELL * 3 || x > innerWidth + CELL * 3 || y < -CELL * 3 || y > innerHeight + CELL * 3; }
+let labelQueue = [];
+function drawLabels() {   // підписи рівнів завжди зверху — жодна будівля не перекриває
+  ctx.textAlign = 'center';
+  for (const L of labelQueue) {
+    if (offscreen(L.x + camX, L.y + camY)) continue;
+    ctx.font = 'bold ' + Math.round(CELL * L.size) + 'px system-ui';
+    ctx.lineWidth = 3; ctx.strokeStyle = '#0d1017'; ctx.strokeText(L.text, L.x, L.y);
+    ctx.fillStyle = L.color; ctx.fillText(L.text, L.x, L.y);
+  }
+  ctx.textAlign = 'left';
+}
 function drawWall(b, x, y, c, wm) {
   const own = b.o; const H2 = CELL / 2;
   const has = (dx, dy) => wm.get((b.y + dy) * W + (b.x + dx)) === own;
@@ -404,7 +420,7 @@ function drawWall(b, x, y, c, wm) {
   ctx.fillStyle = '#ffffff55'; ctx.fillRect(x - ns * 0.22, y - ns * 0.22, ns * 0.44, ns * 0.44);
 }
 function drawBuildings() {
-  const wm = wallConn();
+  const wm = wallConn(); labelQueue = [];
   for (const b of st.buildings) {
     const x = b.x * CELL + CELL / 2, y = b.y * CELL + CELL / 2, c = COL[IDX[b.o]], col = IDX[b.o];
     if (b.t === 'landmine') continue;
@@ -414,8 +430,8 @@ function drawBuildings() {
     const im = sprite(col, b.t);
     if (b.t === 'wall') drawWall(b, x, y, c, wm);
     else if (im) drawSpr(im, x, y, CELL * (BSIZE[b.t] || 1.6)); else drawBuildingShape(b, x, y, c);
-    if (b.t === 'guild' && b.gl != null) { ctx.font = 'bold ' + Math.round(CELL * 0.5) + 'px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#0d1017'; ctx.strokeText('★' + b.gl, x, y - CELL * 1.25); ctx.fillStyle = c; ctx.fillText('★' + b.gl, x, y - CELL * 1.25); ctx.textAlign = 'left'; }
-    if (b.t === 'arsenal' && b.al != null) { ctx.font = 'bold ' + Math.round(CELL * 0.42) + 'px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#0d1017'; ctx.strokeText('Lv.' + b.al, x, y - CELL * 1.05); ctx.fillStyle = '#ffcf6a'; ctx.fillText('Lv.' + b.al, x, y - CELL * 1.05); ctx.textAlign = 'left'; if (b.aup != null && b.o === me.index) { const w = CELL * 0.9; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w, 4); ctx.fillStyle = '#ffcf6a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w * b.aup, 4); } }
+    if (b.t === 'guild' && b.gl != null) labelQueue.push({ x: x, y: y - CELL * 1.25, text: '★' + b.gl, color: c, size: 0.5 });
+    if (b.t === 'arsenal' && b.al != null) { labelQueue.push({ x: x, y: y - CELL * 1.05, text: 'Lv.' + b.al, color: '#ffcf6a', size: 0.42 }); if (b.aup != null && b.o === me.index) { const w = CELL * 0.9; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w, 4); ctx.fillStyle = '#ffcf6a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w * b.aup, 4); } }
     if (b.t === 'barracks' && b.q) { const w = CELL * 0.8; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w, 4); ctx.fillStyle = '#f5c542'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w * (b.prog || 0), 4); if (b.q > 1) { ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'; ctx.fillText('x' + b.q, x + w / 2 - 2, y + CELL * 0.5 - 2); } }
     if (b.rk && b.o === me.index) { if (b.rd) { ctx.font = 'bold ' + Math.round(CELL * 0.7) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffdf5a'; ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 3; ctx.strokeText('!', x, y - CELL * 0.9); ctx.fillText('!', x, y - CELL * 0.9); ctx.textAlign = 'left'; } else { const w = CELL * 0.7; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.62, w, 3); ctx.fillStyle = '#6fcf97'; ctx.fillRect(x - w / 2, y + CELL * 0.62, w * (b.tp || 0), 3); } }
     hpBar(x, y - CELL * (im ? 0.78 : 0.5), b.h, b.m, CELL * 0.85);
@@ -559,8 +575,9 @@ function tradeCalc(from, to, amt) { if (from === 'gold') return Math.floor(amt /
 function renderMarket() {
   if (!marketPanel || marketPanel.classList.contains('hidden') || !st || !st.me) return;
   const day = !st.night, cd = st.me.marketCd || 0, offers = st.offers || [];
-  let h = `<div class="pnhead">🏪 БАЗАР <span class="pnstatus">${day ? '☀️ ВІДКРИТО' : '🌙 ЗАКРИТО ДО СВІТАНКУ'}</span><button class="pnx" data-x>✕</button></div>`;
-  offers.forEach((o, i) => {
+  let h = `<div class="pnhead">🏪 БАЗАР <span class="pnstatus">${day ? '☀️ ВІДКРИТО' : '🌙 НІЧ'}</span><button class="pnx" data-x>✕</button></div>`;
+  if (!day) { h += `<div class="mknight">🌙 Ніч — базар зачинено.<br>Обмінів немає. Нові пропозиції зʼявляться зранку.</div>`; }
+  else offers.forEach((o, i) => {
     const avail = st.me.res[o.from] || 0;
     if (marketAmt[i] === undefined) marketAmt[i] = Math.min(100, avail);
     let amt = Math.max(0, Math.min(marketAmt[i], avail)); marketAmt[i] = amt;

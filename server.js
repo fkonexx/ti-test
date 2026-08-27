@@ -416,7 +416,7 @@ function serializeEntities(s, o, full, vis) {
   const shots = [];
   for (const sh of s.shots) if (full || vis[(sh.y | 0) * W + (sh.x | 0)] === 1 || vis[(sh.ty | 0) * W + (sh.tx | 0)] === 1) shots.push(sh);
   return {
-    winner: s.winner, peace: Math.ceil(s.peace), units, buildings: builds, shots, weather: s.weather, night: isNight(s), offers: s.offers,
+    winner: s.winner, t: Math.floor(s.t), peace: Math.ceil(s.peace), units, buildings: builds, shots, weather: s.weather, night: isNight(s), offers: s.offers,
     me: { index: meP.index, color: meP.color, alive: meP.alive, res: roundRes(meP.res), tech: meP.tech, guildLevel: meP.guildLevel, guildProg: meP.guildProg, army: armyCount(s, o), cap: armyCap(s, o), flags: meP.flagsOwned, flagsTotal: flagCount(s, o), flagCap: flagCapOf(meP), autoCollect: meP.autoCollect, workshops: workshopsOf(s, o).length, mines: mineCount(s, o), hasScout: s.units.some(u => u.owner === o && u.scout), hasCommander: hasCommander(s, o), arsenalLevel: meP.arsenalLevel, arsenalUp: meP.arsenalUp ? { target: meP.arsenalUp.target, time: Math.ceil(meP.arsenalUp.time), total: meP.arsenalUp.total } : null, hasArsenal: s.buildings.some(b => b.owner === o && b.type === 'arsenal' && b.hp > 0), hasMarket: s.buildings.some(b => b.owner === o && b.type === 'market' && b.hp > 0), marketCd: Math.ceil(meP.marketCd) },
     players: s.players.map(p => ({ index: p.index, color: p.color, alive: p.alive })),
   };
@@ -628,6 +628,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('pingCheck', (ts) => socket.emit('pongCheck', ts));
   socket.on('disconnect', () => { leaveCurrentRoom(socket); });
 });
 
