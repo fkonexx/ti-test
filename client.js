@@ -32,7 +32,7 @@ const SPRITE_NAME = { guild: 'guild', mine: 'mine', lumber: 'wood', farm: 'farm'
 const SPR = {};
 for (const color of ['red', 'blue', 'green', 'yellow']) { SPR[color] = {}; for (const t in SPRITE_NAME) { const im = new Image(); im.src = 'assets/' + color + '_' + SPRITE_NAME[t] + '.png'; SPR[color][t] = im; } }
 function sprite(color, type) { const im = SPR[color] && SPR[color][type]; return im && im.complete && im.naturalWidth ? im : null; }
-const BSIZE = { guild: 2.2, mine: 1.7, lumber: 1.7, farm: 1.7, barracks: 1.8, wall: 1.3, tower: 1.6, cannon: 1.3, workshop: 1.8, landmine: 1.0, flag: 1.5 };
+const BSIZE = { guild: 2.2, mine: 1.7, lumber: 1.7, farm: 1.7, barracks: 1.8, wall: 1.3, tower: 1.6, cannon: 1.3, workshop: 1.8, landmine: 0.78, flag: 1.5 };
 const USIZE = { commander: 1.4, ram: 1.35, catapult: 1.35, scout: 1.2, priest: 1.15 };
 
 // баланс: має збігатися з сервером
@@ -202,9 +202,30 @@ function computeBuildable() {
   const g = st.buildings.find(b => b.o === me.index && b.t === 'guild');
   const R = 6 + (st.me ? st.me.tech.influence : 0) * 2;
   if (g) for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const c = g.x + dx, r = g.y + dy; if (c >= 0 && c < W && r >= 0 && r < H) buildable.add(r * W + c); }
-  for (const b of st.buildings) if (b.o === me.index && b.t === 'flag') for (let dy = -FLAG_RADIUS; dy <= FLAG_RADIUS; dy++) for (let dx = -FLAG_RADIUS; dx <= FLAG_RADIUS; dx++) { const c = b.x + dx, r = b.y + dy; if (c >= 0 && c < W && r >= 0 && r < H) buildable.add(r * W + c); }
+  // зона прапора (лише з вільним слотом) — не для стін
+  if (buildMode !== 'wall') for (const b of st.buildings) if (b.o === me.index && b.t === 'flag' && (b.fs === undefined || b.fu < b.fs)) for (let dy = -FLAG_RADIUS; dy <= FLAG_RADIUS; dy++) for (let dx = -FLAG_RADIUS; dx <= FLAG_RADIUS; dx++) { const c = b.x + dx, r = b.y + dy; if (c >= 0 && c < W && r >= 0 && r < H) buildable.add(r * W + c); }
   if (buildMode !== 'wall' && buildMode !== 'landmine') for (const b of st.buildings) { if (b.t === 'landmine') continue; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const c = b.x + dx, r = b.y + dy; if (c >= 0 && c < W && r >= 0 && r < H) buildable.delete(r * W + c); } }
   else for (const b of st.buildings) if (b.t !== 'landmine') buildable.delete(b.y * W + b.x);
+  // стіни: заборонено біля прапора
+  if (buildMode === 'wall') for (const b of st.buildings) if (b.o === me.index && b.t === 'flag') for (let dy = -FLAG_RADIUS; dy <= FLAG_RADIUS; dy++) for (let dx = -FLAG_RADIUS; dx <= FLAG_RADIUS; dx++) { const c = b.x + dx, r = b.y + dy; if (c >= 0 && c < W && r >= 0 && r < H) buildable.delete(r * W + c); }
+}
+function inBuildZone(col, row, t) {
+  const g = st.buildings.find(b => b.o === me.index && b.t === 'guild');
+  const R = 6 + (st.me ? st.me.tech.influence : 0) * 2;
+  if (g && cheb(g.x, g.y, col, row) <= R) return true;
+  if (t !== 'wall') for (const b of st.buildings) if (b.o === me.index && b.t === 'flag' && (b.fs === undefined || b.fu < b.fs) && cheb(b.x, b.y, col, row) <= FLAG_RADIUS) return true;
+  return false;
+}
+function costLackMsg(cst) { const need = [], r = st.me.res; if ((cst.wood || 0) > r.wood) need.push('дерева'); if ((cst.stone || 0) > r.stone) need.push('каменю'); if ((cst.food || 0) > r.food) need.push('їжі'); if ((cst.gold || 0) > r.gold) need.push('золота'); return 'Недостатньо ' + (need.join(', ') || 'ресурсів'); }
+function buildBlockReason(col, row) {
+  const t = buildMode;
+  if (col < 0 || col >= W || row < 0 || row >= H) return 'Поза межами карти';
+  if (st.buildings.some(b => b.x === col && b.y === row && b.t !== 'landmine')) return 'Тут вже є споруда';
+  if (t === 'wall') { if (st.buildings.some(b => b.o === me.index && b.t === 'flag' && cheb(b.x, b.y, col, row) <= FLAG_RADIUS)) return 'Стіни не можна ставити біля прапора'; }
+  else if (t !== 'landmine') { if (st.buildings.some(b => b.t !== 'landmine' && cheb(b.x, b.y, col, row) <= 1)) return 'Занадто близько до іншої споруди (потрібен проміжок)'; }
+  if (!inBuildZone(col, row, t)) return 'Поза зоною гільдії/прапора';
+  if (!canAfford(COST[t])) return costLackMsg(COST[t]);
+  return null;
 }
 let bannerTimer = null;
 function banner(t) { el.banner.textContent = t; el.banner.classList.remove('hidden'); if (!attackMode && !buildMode) { clearTimeout(bannerTimer); bannerTimer = setTimeout(hideBanner, 2200); } }
@@ -246,7 +267,7 @@ function musicStop() { if (musicTimer) { clearInterval(musicTimer); musicTimer =
 function tone(type, f0, f1, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.02); } catch (e) {} }
 let lastShoot = 0;
 function sfxShoot() { const n = performance.now(); if (n - lastShoot < 70) return; lastShoot = n; tone('square', 620, 240, 0.1, 0.05); }
-function sfx(kind) { if (kind === 'boom') tone('sawtooth', 190, 45, 0.28, 0.09); else if (kind === 'build') tone('triangle', 300, 520, 0.12, 0.06); else if (kind === 'select') tone('sine', 480, 480, 0.06, 0.04); }
+function sfx(kind) { if (kind === 'boom') tone('sawtooth', 190, 45, 0.28, 0.09); else if (kind === 'build') tone('triangle', 300, 520, 0.12, 0.06); else if (kind === 'select') tone('sine', 480, 480, 0.06, 0.04); else if (kind === 'deny') tone('square', 170, 90, 0.16, 0.06); }
 
 const ptrs = new Map();
 let mode = null, startX = 0, startY = 0, moved = false, box = null, panMid = null, pinchDist = 0, suppress = false, lastX = 0, lastY = 0;
@@ -291,7 +312,7 @@ function tap(px, py) {
   if (!st) return;
   const col = Math.floor((px - camX) / CELL), row = Math.floor((py - camY) / CELL);
   if (col < 0 || col >= W || row < 0 || row >= H) return;
-  if (buildMode) { if (buildable && !buildable.has(row * W + col)) { banner('Не можна тут (зона гільдії/прапора)'); return; } if (!canAfford(COST[buildMode])) { banner('Недостатньо ресурсів'); return; } socket.emit('command', { type: 'build', build: buildMode, cx: col, cy: row }); sfx('build'); if (buildMode !== 'wall' && buildMode !== 'landmine') { buildMode = null; buildable = null; modes(); } return; }
+  if (buildMode) { const reason = buildBlockReason(col, row); if (reason) { banner('🚫 ' + reason); sfx('deny'); return; } socket.emit('command', { type: 'build', build: buildMode, cx: col, cy: row }); sfx('build'); if (buildMode !== 'wall' && buildMode !== 'landmine') { buildMode = null; buildable = null; modes(); } return; }
   if (attackMode) { sendMove(col, row); attackMode = false; modes(); return; }
   // свій воїн?
   const uids = st.units.filter(u => u.o === me.index && !u.s && Math.round(u.x) === col && Math.round(u.y) === row).map(u => u.i);
@@ -317,7 +338,7 @@ function draw() {
   for (const id in renderU) { const r = renderU[id]; const dx = r.tx - r.x, dy = r.ty - r.y; r.x += dx * 0.22; r.y += dy * 0.22; const sp = Math.hypot(dx, dy); if (sp > 0.04) r.ang = lerpAng(r.ang, Math.atan2(dy, dx), 0.15); if (r.swing > 0) r.swing -= 1 / 60; if (r.healT > 0) r.healT -= 1 / 60; }
   darkness += ((st.night ? 0.42 : 0) - darkness) * 0.03; rain += ((st.weather === 'rain' ? 1 : 0) - rain) * 0.03;
   ctx.save(); ctx.translate(camX, camY);
-  drawTiles(); drawBuildings(); drawUnits(); drawProjectiles(); drawEffects();
+  drawTiles(); drawMines(); drawBuildings(); drawUnits(); drawProjectiles(); drawEffects();
   if (selectMode && box && moved) { const x0 = Math.min(box.x0, box.x1) - camX, y0 = Math.min(box.y0, box.y1) - camY, w = Math.abs(box.x1 - box.x0), h = Math.abs(box.y1 - box.y0); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(x0, y0, w, h); ctx.setLineDash([]); ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(x0, y0, w, h); }
   ctx.restore();
   if (darkness > 0.01) { ctx.fillStyle = `rgba(6,10,26,${darkness})`; ctx.fillRect(0, 0, innerWidth, innerHeight); }
@@ -344,14 +365,44 @@ const BUILD_RANGE = { tower: 5.5, cannon: 7.0 };
 function rect(c, s) { ctx.fillStyle = c; ctx.fillRect(-s, -s, s * 2, s * 2); }
 function tri(cx, cy, s) { ctx.beginPath(); ctx.moveTo(cx, cy - s); ctx.lineTo(cx + s, cy + s); ctx.lineTo(cx - s, cy + s); ctx.closePath(); ctx.fill(); }
 function ring(c, r) { ctx.strokeStyle = c + '44'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(0, 0, r * CELL, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
+function drawMines() {   // нижній шар — під спорудами та героями
+  for (const b of st.buildings) if (b.t === 'landmine') drawMine(b, b.x * CELL + CELL / 2, b.y * CELL + CELL / 2, COL[IDX[b.o]]);
+}
+function wallConn() { const m = new Map(); for (const b of st.buildings) if (b.t === 'wall') m.set(b.y * W + b.x, b.o); return m; }
+function drawWall(b, x, y, c, wm) {
+  const own = b.o; const H2 = CELL / 2;
+  const has = (dx, dy) => wm.get((b.y + dy) * W + (b.x + dx)) === own;
+  const N = has(0, -1), E = has(1, 0), S = has(0, 1), Wn = has(-1, 0);
+  const metal = '#464b55', metalHi = '#606877', metalDk = '#2a2e36';
+  const aw = CELL * 0.34, cw = CELL * 0.14;
+  // метал-арми до сусідів
+  ctx.fillStyle = metal;
+  if (N) ctx.fillRect(x - aw / 2, y - H2, aw, H2 + 1); if (S) ctx.fillRect(x - aw / 2, y, aw, H2 + 1);
+  if (E) ctx.fillRect(x, y - aw / 2, H2 + 1, aw); if (Wn) ctx.fillRect(x - H2 - 1, y - aw / 2, H2 + 1, aw);
+  // світна серцевина в армах (колір команди)
+  ctx.fillStyle = c;
+  if (N) ctx.fillRect(x - cw / 2, y - H2, cw, H2); if (S) ctx.fillRect(x - cw / 2, y, cw, H2);
+  if (E) ctx.fillRect(x, y - cw / 2, H2, cw); if (Wn) ctx.fillRect(x - H2, y - cw / 2, H2, cw);
+  // вузол (метал з фаскою)
+  const ns = CELL * 0.36;
+  ctx.fillStyle = metalDk; ctx.fillRect(x - ns, y - ns, ns * 2, ns * 2);
+  ctx.fillStyle = metal; ctx.fillRect(x - ns * 0.84, y - ns * 0.84, ns * 1.68, ns * 1.68);
+  ctx.fillStyle = metalHi; ctx.fillRect(x - ns * 0.84, y - ns * 0.84, ns * 1.68, ns * 0.22);
+  // світне ядро вузла
+  const grad = ctx.createRadialGradient(x, y, 1, x, y, ns * 0.75);
+  grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.35, c); grad.addColorStop(1, c + '22');
+  ctx.fillStyle = grad; ctx.fillRect(x - ns * 0.52, y - ns * 0.52, ns * 1.04, ns * 1.04);
+}
 function drawBuildings() {
+  const wm = wallConn();
   for (const b of st.buildings) {
     const x = b.x * CELL + CELL / 2, y = b.y * CELL + CELL / 2, c = COL[IDX[b.o]], col = IDX[b.o];
-    if (b.t === 'landmine') { drawMine(b, x, y, c); continue; }
+    if (b.t === 'landmine') continue;
     if ((b.t === 'tower' || b.t === 'cannon')) { ctx.save(); ctx.translate(x, y); ring(c, BUILD_RANGE[b.t]); ctx.restore(); }
     if (sel.building === b.i) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(b.x * CELL + 1, b.y * CELL + 1, CELL - 2, CELL - 2); }
     const im = sprite(col, b.t);
-    if (im) drawSpr(im, x, y, CELL * (BSIZE[b.t] || 1.6)); else drawBuildingShape(b, x, y, c);
+    if (b.t === 'wall') drawWall(b, x, y, c, wm);
+    else if (im) drawSpr(im, x, y, CELL * (BSIZE[b.t] || 1.6)); else drawBuildingShape(b, x, y, c);
     if (b.t === 'guild' && b.gl != null) { ctx.font = 'bold ' + Math.round(CELL * 0.5) + 'px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#0d1017'; ctx.strokeText('★' + b.gl, x, y - CELL * 1.25); ctx.fillStyle = c; ctx.fillText('★' + b.gl, x, y - CELL * 1.25); ctx.textAlign = 'left'; }
     if (b.t === 'barracks' && b.q) { const w = CELL * 0.8; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w, 4); ctx.fillStyle = '#f5c542'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w * (b.prog || 0), 4); if (b.q > 1) { ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'; ctx.fillText('x' + b.q, x + w / 2 - 2, y + CELL * 0.5 - 2); } }
     if (b.rk && b.o === me.index) { if (b.rd) { ctx.font = 'bold ' + Math.round(CELL * 0.7) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffdf5a'; ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 3; ctx.strokeText('!', x, y - CELL * 0.9); ctx.fillText('!', x, y - CELL * 0.9); ctx.textAlign = 'left'; } else { const w = CELL * 0.7; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.62, w, 3); ctx.fillStyle = '#6fcf97'; ctx.fillRect(x - w / 2, y + CELL * 0.62, w * (b.tp || 0), 3); } }

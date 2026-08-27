@@ -230,7 +230,7 @@ function step(room) {
     if (q.time <= 0) { const offs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [2, 0], [0, 2]]; let sx = b.cx, sy = b.cy; for (const [dx, dy] of offs) { const c = b.cx + dx, r = b.cy + dy; if (c >= 0 && c < W && r >= 0 && r < H) { sx = c; sy = r; break; } } spawnUnit(s, b.owner, q.type, sx, sy); b.queue.shift(); }
   }
   // пасивний ремонт споруд
-  for (const b of s.buildings) { if (b.type === 'landmine') continue; if (b.hp < b.maxHp && s.t - b.lastHit >= REPAIR_DELAY) b.hp = Math.min(b.maxHp, b.hp + REPAIR_PER_SEC * DT); }
+  for (const b of s.buildings) { if (b.type === 'landmine' || b.hp <= 0) continue; if (b.hp < b.maxHp && s.t - b.lastHit >= REPAIR_DELAY) b.hp = Math.min(b.maxHp, b.hp + REPAIR_PER_SEC * DT); }
 
   // мапа стін для колізій
   const wallCell = new Map();
@@ -369,8 +369,8 @@ function visibleCells(s, o) {
   for (const b of s.buildings) if (b.owner === o) mark(b.cx, b.cy, b.type === 'guild' ? 7 : b.type === 'flag' ? FLAG.vision : b.type === 'landmine' ? 0 : 5);
   return vis;
 }
-function mineVisible(s, o, mineB) {   // ворожа міна видима лише в радіусі детекції розвідника
-  const p = playerOf(s, o); const det = MINE_DETECT[p.tech.scouting] || 0; if (det <= 0) return false;
+function mineVisible(s, o, mineB) {   // ворожа міна видима в повному радіусі зору розвідника
+  const p = playerOf(s, o); const det = SCOUT_VISION[p.tech.scouting] || 0; if (det <= 0) return false;
   for (const u of s.units) if (u.owner === o && u.scout && dist(u.x, u.y, mineB.cx, mineB.cy) <= det) return true;
   return false;
 }
@@ -393,6 +393,7 @@ function serializeEntities(s, o, full, vis) {
     if (b.owner !== o && !full && !seen(b.cx, b.cy)) continue;
     const ob = { i: b.id, o: b.owner, t: b.type, x: b.cx, y: b.cy, h: Math.round(b.hp), m: b.maxHp };
     if (b.type === 'guild') { const gp = playerOf(s, b.owner); ob.gl = gp ? gp.guildLevel : 1; }
+    if (b.type === 'flag' && b.owner === o) { ob.fu = b.used; ob.fs = b.slots; }
     if (b.type === 'barracks' && b.owner === o) { ob.q = b.queue.length; if (b.queue.length) { const f = b.queue[0]; ob.prog = 1 - f.time / f.total; } }
     if (b.resKind && b.owner === o) { ob.rd = b.ready ? 1 : 0; ob.am = b.amount; ob.tp = b.ready ? 1 : 1 - b.timer / COLLECT_TIME; ob.rk = b.resKind; }
     builds.push(ob);
@@ -475,6 +476,7 @@ function buildPlacement(s, o, type, cx, cy) {
   if (cx < 0 || cx >= W || cy < 0 || cy >= H) return { ok: false };
   if (s.buildings.some(b => b.cx === cx && b.cy === cy)) return { ok: false };
   if (type !== 'wall' && type !== 'landmine' && s.buildings.some(b => b.type !== 'landmine' && cheb(b.cx, b.cy, cx, cy) <= 1)) return { ok: false, reason: 'gap' };
+  if (type === 'wall' && s.buildings.some(b => b.owner === o && b.type === 'flag' && cheb(b.cx, b.cy, cx, cy) <= FLAG.radius)) return { ok: false, reason: 'flagwall' };
   return inZone(s, o, cx, cy);
 }
 
