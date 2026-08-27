@@ -1,6 +1,6 @@
 {
   "name": "four-empires",
-  "version": "6.0.0",
+  "version": "7.0.0",
   "description": "Чотири Імперії — онлайн RTS для 2-4 гравців: туман війни, біоми, ресурси, дерево технологій (Canvas + Socket.IO)",
   "main": "server.js",
   "scripts": { "start": "node server.js" },

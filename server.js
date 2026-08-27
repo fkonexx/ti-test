@@ -75,10 +75,12 @@ const BUILD = {
   tower:    { hp: 350,  cost: { wood: 50, stone: 80, gold: 40 }, range: 5.5, dmg: 13, cd: 1.0, construction: 3 },
   cannon:   { hp: 450,  cost: { wood: 70, stone: 120, gold: 70 }, range: 7.0, dmg: 28, cd: 2.2, splash: 1.6, splashPct: 0.6, construction: 4 },
   workshop: { hp: 350,  cost: { wood: 80, stone: 100, gold: 60 }, construction: 4 },
+  market:   { hp: 220,  cost: { wood: 45, stone: 35, gold: 25 },  construction: 2 },
+  arsenal:  { hp: 500,  cost: { wood: 150, stone: 180, gold: 150 }, construction: 5 },
   landmine: { hp: MINE.hp, cost: { wood: 10, stone: 35, gold: 20 }, construction: 5, isMine: true },
   flag:     { hp: FLAG.hp, cost: FLAG.cost },
 };
-const TECH_KEYS = ['construction', 'army', 'influence', 'mining', 'lumber', 'farming', 'warfare', 'defense', 'scouting', 'engineering'];
+const TECH_KEYS = ['construction', 'army', 'influence', 'mining', 'lumber', 'farming', 'defense', 'scouting', 'engineering'];
 
 const rooms = {};
 function makeCode() { const s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = ''; for (let i = 0; i < 6; i++) c += s[Math.floor(Math.random() * s.length)]; return c; }
@@ -137,18 +139,23 @@ function newPlayer(index) {
   return {
     index, color: COLORS[index], alive: true,
     res: { wood: 120, stone: 120, food: 100, gold: 80, tokens: 3 },
-    tech: { construction: 0, army: 0, influence: 0, mining: 0, lumber: 0, farming: 0, warfare: 0, defense: 0, scouting: 0, engineering: 0 },
+    tech: { construction: 0, army: 0, influence: 0, mining: 0, lumber: 0, farming: 0, defense: 0, scouting: 0, engineering: 0 },
     guildLevel: 1, guildProg: 0, tokenTimer: TOKEN_BASE,
-    flagsOwned: 0, scoutRespawn: 0, autoCollect: false, stats: newStats(),
+    flagsOwned: 0, scoutRespawn: 0, autoCollect: false, arsenalLevel: 0, arsenalUp: null, marketCd: 0, stats: newStats(),
   };
 }
-function warDmgMult(p) { return 1 + 0.06 * p.tech.warfare; }
-function warHpMult(p) { return 1 + 0.05 * p.tech.warfare; }
+const NORMAL_UNITS = new Set(['sword', 'archer', 'mage', 'spear', 'assassin']);
+function arsenalHpMult(p) { let m = 1 + 0.03 * p.arsenalLevel; if (p.arsenalLevel >= 10) m += 0.10; if (p.arsenalLevel >= 20) m += 0.10; return m; }
+function arsenalDmgMult(p) { return 1 + 0.02 * p.arsenalLevel; }
+function buildingDmgEff(p) { let e = 0.35; if (p.arsenalLevel >= 5) e += 0.05; if (p.arsenalLevel >= 15) e += 0.05; if (p.arsenalLevel >= 25) e += 0.05; return e; }
+function arsenalCost(L) { return { wood: 60 + 15 * L, stone: 60 + 15 * L, food: 40 + 10 * L, gold: 40 + 10 * L }; }
+function arsenalTokens(L) { return L >= 25 ? 5 : L >= 20 ? 4 : L >= 15 ? 3 : L >= 10 ? 2 : L >= 5 ? 1 : 0; }
+function arsenalTime(L) { return 15 + 3 * L; }
 function guildHpMult(p) { return 1 + 0.06 * (p.guildLevel - 1); }
 function defHpMult(p) { return 1 + 0.06 * p.tech.defense; }
 function tokenCooldown(p) { return TOKEN_BASE - TOKEN_STEP * p.tech.engineering; }
 function flagCapOf(p) { return FLAG_CAP[p.tech.scouting] || 0; }
-function unitMaxHp(p, type) { return Math.round(UNIT[type].hp * warHpMult(p)); }
+function unitMaxHp(p, type) { return Math.round(UNIT[type].hp * arsenalHpMult(p)); }
 
 function spawnUnit(s, owner, type, x, y) {
   const p = playerOf(s, owner); const def = UNIT[type];
@@ -174,7 +181,7 @@ function addBuilding(s, owner, type, cx, cy, flagId) {
 }
 function initGame(room) {
   const spawns = genSpawns(room.players.length);
-  const s = { W, H, spawns, biomes: generateBiomes(spawns), grid: new Array(W * H).fill(-1), units: [], buildings: [], players: [], nextId: 1, winner: null, t: 0, peace: PEACE_TIME, weather: 'clear', weatherTimer: 40, shots: [] };
+  const s = { W, H, spawns, biomes: generateBiomes(spawns), grid: new Array(W * H).fill(-1), units: [], buildings: [], players: [], nextId: 1, winner: null, t: 0, peace: PEACE_TIME, weather: 'clear', weatherTimer: 40, shots: [], marketDay: -1, offers: [] };
   room.players.forEach((p, i) => { s.players.push(newPlayer(p.index)); const b = spawns[i]; addBuilding(s, p.index, 'guild', b.cx, b.cy); });   // без розвідника на старті
   room.state = s; room.lastGrid = {}; room.debugFog = false;
 }
@@ -184,14 +191,14 @@ function workshopsOf(s, o) { return s.buildings.filter(b => b.owner === o && b.t
 function armyCap(s, o) { return barracksOf(s, o).length * ARMY_PER_BARRACKS; }
 function armyCount(s, o) { let n = 0; for (const u of s.units) if (u.owner === o && !u.scout) n++; for (const b of barracksOf(s, o)) n += (b.queue ? b.queue.length : 0); return n; }
 function hasCommander(s, o) { if (s.units.some(u => u.owner === o && u.type === 'commander')) return true; for (const b of barracksOf(s, o)) if (b.queue && b.queue.some(q => q.type === 'commander')) return true; return false; }
-function flagCount(s, o) { let n = 0; for (const b of s.buildings) if (b.owner === o && b.type === 'flag') n++; const p = playerOf(s, o); return n + (p ? p.flagsOwned : 0); }
+function flagCount(s, o) { let n = 0; for (const b of s.buildings) if (b.owner === o && b.type === 'flag' && b.hp > 0) n++; const p = playerOf(s, o); return n + (p ? p.flagsOwned : 0); }
 function mineCount(s, o) { let n = 0; for (const b of s.buildings) if (b.owner === o && b.type === 'landmine') n++; return n; }
 function isNight(s) { return (s.t % DAY_CYCLE) >= DAY_LEN; }
 function hasCommanderNear(s, o, x, y) { for (const u of s.units) if (u.owner === o && u.type === 'commander' && u.hp > 0 && dist(x, y, u.x, u.y) <= UNIT.commander.aura) return true; return false; }
 
-function nearestEnemyUnit(s, o, x, y, maxR) { let best = null, bd = maxR; for (const u of s.units) { if (u.owner === o || u.hp <= 0 || u.scout) continue; const d = dist(x, y, u.x, u.y); if (d <= bd) { bd = d; best = { ref: u, x: u.x, y: u.y, dist: d, isB: false }; } } return best; }
+function nearestEnemyUnit(s, o, x, y, maxR, incScouts) { let best = null, bd = maxR; for (const u of s.units) { if (u.owner === o || u.hp <= 0 || (u.scout && !incScouts)) continue; const d = dist(x, y, u.x, u.y); if (d <= bd) { bd = d; best = { ref: u, x: u.x, y: u.y, dist: d, isB: false }; } } return best; }
 function nearestEnemyBuilding(s, o, x, y, maxR) { let best = null, bd = maxR; for (const b of s.buildings) { if (b.owner === o || b.hp <= 0 || b.type === 'landmine') continue; const d = dist(x, y, b.cx, b.cy); if (d <= bd) { bd = d; best = { ref: b, x: b.cx, y: b.cy, dist: d, isB: true }; } } return best; }
-function nearestEnemyAny(s, o, x, y, maxR) { const u = nearestEnemyUnit(s, o, x, y, maxR); const b = nearestEnemyBuilding(s, o, x, y, maxR); if (u && b) return u.dist <= b.dist ? u : b; return u || b; }
+function nearestEnemyAny(s, o, x, y, maxR, incScouts) { const u = nearestEnemyUnit(s, o, x, y, maxR, incScouts); const b = nearestEnemyBuilding(s, o, x, y, maxR); if (u && b) return u.dist <= b.dist ? u : b; return u || b; }
 
 function credit(s, atk, isB) { const p = playerOf(s, atk); if (!p) return; if (isB) p.stats.razed++; else p.stats.kills++; }
 function hitBuilding(b, s) { b.lastHit = s.t; }
@@ -207,8 +214,10 @@ function step(room) {
   s.t += DT; s.shots = [];
   if (s.peace > 0) s.peace = Math.max(0, s.peace - DT);
   const peace = s.peace > 0;
-  s.weatherTimer -= DT; if (s.weatherTimer <= 0) { s.weather = Math.random() < 0.35 ? 'rain' : 'clear'; s.weatherTimer = 30 + Math.random() * 40; }
+  s.weatherTimer -= DT; if (s.weatherTimer <= 0) { s.weather = Math.random() < 0.10 ? 'rain' : 'clear'; s.weatherTimer = 30 + Math.random() * 40; }
   const speedMul = s.weather === 'rain' ? 0.7 : 1;
+  const dayIdx = Math.floor(s.t / DAY_CYCLE);
+  if (dayIdx !== s.marketDay) { s.marketDay = dayIdx; s.offers = genOffers(); }
 
   // економіка / жетони / відродження розвідника
   for (const p of s.players) {
@@ -216,6 +225,11 @@ function step(room) {
     p.res.gold += (0.30 + 0.10 * p.guildLevel) * DT;
     p.tokenTimer -= DT; if (p.tokenTimer <= 0) { p.res.tokens += 1; p.tokenTimer = tokenCooldown(p); }
     if (p.scoutRespawn > 0) { p.scoutRespawn -= DT; if (p.scoutRespawn <= 0 && p.tech.scouting >= 1 && !s.units.some(u => u.owner === p.index && u.scout)) { const g = s.buildings.find(b => b.owner === p.index && b.type === 'guild'); if (g) spawnScout(s, p.index, g.cx, g.cy - 1); } }
+    if (p.marketCd > 0) p.marketCd = Math.max(0, p.marketCd - DT);
+    if (p.arsenalUp) {
+      if (!s.buildings.some(b => b.owner === p.index && b.type === 'arsenal' && b.hp > 0)) { p.arsenalUp = null; }   // арсенал знищено — скасувати
+      else { p.arsenalUp.time -= DT; if (p.arsenalUp.time <= 0) { p.arsenalLevel = p.arsenalUp.target; p.arsenalUp = null; relevelUnits(s, p); } }
+    }
   }
   // ресурсні споруди
   for (const b of s.buildings) {
@@ -272,7 +286,7 @@ function step(room) {
 
     let tgt = null, attacked = false;
     if (u.type === 'ram') tgt = nearestEnemyBuilding(s, u.owner, u.x, u.y, Math.max(def.range, def.aggro));
-    else tgt = nearestEnemyAny(s, u.owner, u.x, u.y, Math.max(def.range, def.aggro));
+    else tgt = nearestEnemyAny(s, u.owner, u.x, u.y, Math.max(def.range, def.aggro), true);
     if (tgt && tgt.dist <= def.range + 0.2 && u.cd <= 0) {
       let dmg = unitDamage(s, u, p, tgt.isB);
       applyDamage(s, u.owner, tgt, dmg, tgt.isB ? 0 : (def.splash || 0), def.splashPct); u.cd = def.cd; u.lastAtk = s.t;
@@ -302,10 +316,10 @@ function step(room) {
   broadcast(room);
 }
 function unitDamage(s, u, p, tgtIsB) {
-  if (u.type === 'ram') return tgtIsB ? 24 : 0;
-  let d = UNIT[u.type].dmg * warDmgMult(p);
+  if (u.type === 'ram') return tgtIsB ? 24 * arsenalDmgMult(p) : 0;
+  let d = UNIT[u.type].dmg * arsenalDmgMult(p);
   if (hasCommanderNear(s, u.owner, u.x, u.y)) d *= (1 + UNIT.commander.auraBonus);
-  if (tgtIsB) d *= (u.type === 'catapult') ? 1.0 : BUILD_DMG_UNIT;
+  if (tgtIsB) d *= (u.type === 'catapult') ? 1.0 : buildingDmgEff(p);
   return d;
 }
 function priestHeal(s, u, p) {
@@ -393,6 +407,7 @@ function serializeEntities(s, o, full, vis) {
     if (b.owner !== o && !full && !seen(b.cx, b.cy)) continue;
     const ob = { i: b.id, o: b.owner, t: b.type, x: b.cx, y: b.cy, h: Math.round(b.hp), m: b.maxHp };
     if (b.type === 'guild') { const gp = playerOf(s, b.owner); ob.gl = gp ? gp.guildLevel : 1; }
+    if (b.type === 'arsenal') { const ap = playerOf(s, b.owner); ob.al = ap ? ap.arsenalLevel : 0; if (b.owner === o && ap && ap.arsenalUp) ob.aup = 1 - ap.arsenalUp.time / ap.arsenalUp.total; }
     if (b.type === 'flag' && b.owner === o) { ob.fu = b.used; ob.fs = b.slots; }
     if (b.type === 'barracks' && b.owner === o) { ob.q = b.queue.length; if (b.queue.length) { const f = b.queue[0]; ob.prog = 1 - f.time / f.total; } }
     if (b.resKind && b.owner === o) { ob.rd = b.ready ? 1 : 0; ob.am = b.amount; ob.tp = b.ready ? 1 : 1 - b.timer / COLLECT_TIME; ob.rk = b.resKind; }
@@ -401,8 +416,8 @@ function serializeEntities(s, o, full, vis) {
   const shots = [];
   for (const sh of s.shots) if (full || vis[(sh.y | 0) * W + (sh.x | 0)] === 1 || vis[(sh.ty | 0) * W + (sh.tx | 0)] === 1) shots.push(sh);
   return {
-    winner: s.winner, peace: Math.ceil(s.peace), units, buildings: builds, shots, weather: s.weather, night: isNight(s),
-    me: { index: meP.index, color: meP.color, alive: meP.alive, res: roundRes(meP.res), tech: meP.tech, guildLevel: meP.guildLevel, guildProg: meP.guildProg, army: armyCount(s, o), cap: armyCap(s, o), flags: meP.flagsOwned, flagsTotal: flagCount(s, o), flagCap: flagCapOf(meP), autoCollect: meP.autoCollect, workshops: workshopsOf(s, o).length, mines: mineCount(s, o), hasScout: s.units.some(u => u.owner === o && u.scout), hasCommander: hasCommander(s, o) },
+    winner: s.winner, peace: Math.ceil(s.peace), units, buildings: builds, shots, weather: s.weather, night: isNight(s), offers: s.offers,
+    me: { index: meP.index, color: meP.color, alive: meP.alive, res: roundRes(meP.res), tech: meP.tech, guildLevel: meP.guildLevel, guildProg: meP.guildProg, army: armyCount(s, o), cap: armyCap(s, o), flags: meP.flagsOwned, flagsTotal: flagCount(s, o), flagCap: flagCapOf(meP), autoCollect: meP.autoCollect, workshops: workshopsOf(s, o).length, mines: mineCount(s, o), hasScout: s.units.some(u => u.owner === o && u.scout), hasCommander: hasCommander(s, o), arsenalLevel: meP.arsenalLevel, arsenalUp: meP.arsenalUp ? { target: meP.arsenalUp.target, time: Math.ceil(meP.arsenalUp.time), total: meP.arsenalUp.total } : null, hasArsenal: s.buildings.some(b => b.owner === o && b.type === 'arsenal' && b.hp > 0), hasMarket: s.buildings.some(b => b.owner === o && b.type === 'market' && b.hp > 0), marketCd: Math.ceil(meP.marketCd) },
     players: s.players.map(p => ({ index: p.index, color: p.color, alive: p.alive })),
   };
 }
@@ -532,7 +547,6 @@ io.on('connection', (socket) => {
       const k = cmd.branch; if (!TECH_KEYS.includes(k)) return;
       const lvl = me.tech[k]; if (lvl >= 5) return; const cost = TECH_COST[lvl]; if (me.res.tokens < cost) return;
       me.res.tokens -= cost; me.tech[k] = lvl + 1;
-      if (k === 'warfare') relevelUnits(s, me);
       if (k === 'defense') relevelBuildings(s, me);
       if (k === 'scouting' && lvl === 0) { if (!s.units.some(u => u.owner === o && u.scout)) { const g = s.buildings.find(b => b.owner === o && b.type === 'guild'); if (g) spawnScout(s, o, g.cx, g.cy - 1); } }
       me.guildProg += GUILD_PER_UPGRADE;
@@ -547,15 +561,20 @@ io.on('connection', (socket) => {
       if (me.tech.army < def.unlock) return;
       if (def.max1 && hasCommander(s, o)) return;
       if (def.workshop && workshopsOf(s, o).length === 0) return;
-      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === o && bb.type === 'barracks'); if (!b) return;
+      const bars = barracksOf(s, o); if (!bars.length) return;
       if (armyCount(s, o) >= armyCap(s, o)) return;
       const c = def; if (me.res.food < (c.food || 0) || me.res.gold < (c.gold || 0) || (me.res.wood || 0) < (c.wood || 0) || (me.res.stone || 0) < (c.stone || 0)) return;
       me.res.food -= (c.food || 0); me.res.gold -= (c.gold || 0); me.res.wood -= (c.wood || 0); me.res.stone -= (c.stone || 0);
-      b.queue.push({ type, time: def.build, total: def.build });
+      // авторозподіл: казарма з найменшим сумарним залишковим часом черги
+      let best = bars[0], bt = Infinity; for (const bb of bars) { let t = 0; for (const q of bb.queue) t += q.time; if (t < bt) { bt = t; best = bb; } }
+      best.queue.push({ type, time: def.build, total: def.build });
     }
     else if (cmd.type === 'build') {
       const type = cmd.build, def = BUILD[type]; if (!def || type === 'guild' || type === 'flag') return;
       if (me.tech.construction < def.construction) return;
+      if (type === 'workshop' && s.buildings.some(b => b.owner === o && b.type === 'workshop' && b.hp > 0)) return;   // макс. 1 Workshop
+      if (type === 'market' && s.buildings.some(b => b.owner === o && b.type === 'market' && b.hp > 0)) return;       // макс. 1 Market
+      if (type === 'arsenal' && s.buildings.some(b => b.owner === o && b.type === 'arsenal' && b.hp > 0)) return;     // макс. 1 Arsenal
       const cx = cmd.cx | 0, cy = cmd.cy | 0;
       if (type === 'landmine') { if (!placeMineOk(s, o, cx, cy)) return; }
       else { const pl = buildPlacement(s, o, type, cx, cy); if (!pl.ok) return; var flagId = pl.flag; }
@@ -570,9 +589,11 @@ io.on('connection', (socket) => {
       me.res[b.resKind] += b.amount; me.stats.gathered += b.amount; b.ready = false; b.amount = 0; b.timer = COLLECT_TIME;
     }
     else if (cmd.type === 'demolish') {
-      const b = s.buildings.find(bb => bb.id === cmd.building && bb.owner === o); if (!b || b.type === 'guild') return;
+      const idx = s.buildings.findIndex(bb => bb.id === cmd.building && bb.owner === o);
+      if (idx < 0) return; const b = s.buildings[idx]; if (b.type === 'guild') return;
       if (b.flag != null) { const fb = s.buildings.find(x => x.id === b.flag); if (fb) fb.used = Math.max(0, fb.used - 1); }
-      b.hp = 0;
+      s.buildings.splice(idx, 1);                                        // миттєве видалення (без «воскресіння» репаром)
+      if (b.type === 'flag') s.buildings = s.buildings.filter(x => x.flag !== b.id);   // прибрати залежні від прапора
     }
     else if (cmd.type === 'buyFlag') {
       if (flagCount(s, o) >= flagCapOf(me)) return;
@@ -586,6 +607,24 @@ io.on('connection', (socket) => {
       if (s.buildings.some(b => b.type !== 'landmine' && cheb(b.cx, b.cy, cx, cy) <= 1)) return;
       const cell = s.grid[cy * W + cx]; if (cell >= 0 && cell !== o) return;
       me.flagsOwned--; addBuilding(s, o, 'flag', cx, cy);
+    }
+    else if (cmd.type === 'trade') {
+      const market = s.buildings.find(b => b.owner === o && b.type === 'market' && b.hp > 0); if (!market) return;
+      if (isNight(s)) return;                       // тільки вдень
+      if (me.marketCd > 0) return;                  // кулдаун 5с
+      const off = s.offers[cmd.offer]; if (!off) return;
+      const amt = Math.floor(cmd.amount); if (!(amt > 0)) return;
+      if ((me.res[off.from] || 0) < amt) return;
+      const recv = tradeResult(off.from, off.to, amt); if (recv <= 0) return;
+      me.res[off.from] -= amt; me.res[off.to] += recv; me.marketCd = 5;
+    }
+    else if (cmd.type === 'arsenalUpgrade') {
+      const ar = s.buildings.find(b => b.owner === o && b.type === 'arsenal' && b.hp > 0); if (!ar) return;
+      if (me.arsenalLevel >= 25 || me.arsenalUp) return;
+      const L = me.arsenalLevel + 1; const c = arsenalCost(L); const tok = arsenalTokens(L);
+      if ((me.res.wood || 0) < c.wood || (me.res.stone || 0) < c.stone || (me.res.food || 0) < c.food || (me.res.gold || 0) < c.gold || me.res.tokens < tok) return;
+      me.res.wood -= c.wood; me.res.stone -= c.stone; me.res.food -= c.food; me.res.gold -= c.gold; me.res.tokens -= tok;
+      me.arsenalUp = { target: L, time: arsenalTime(L), total: arsenalTime(L) };
     }
   });
 
@@ -603,6 +642,20 @@ function placeMineOk(s, o, cx, cy) {
 }
 function relevelBuildings(s, p) { for (const b of s.buildings) { if (b.owner !== p.index || b.type === 'landmine') continue; const ratio = b.hp / b.maxHp; b.maxHp = buildingMaxHp(p, b.type); b.hp = Math.max(1, Math.round(b.maxHp * ratio)); } }
 function relevelUnits(s, p) { for (const u of s.units) { if (u.owner !== p.index || u.scout) continue; const old = u.maxHp; u.maxHp = unitMaxHp(p, u.type); u.hp = Math.min(u.maxHp, u.hp + (u.maxHp - old)); if (u.hp < 1) u.hp = 1; } }
+
+function genOffers() {
+  const R = ['wood', 'stone', 'food', 'gold']; const pairs = [];
+  for (const a of R) for (const b of R) if (a !== b) pairs.push({ from: a, to: b });
+  const o1 = pairs[Math.floor(Math.random() * pairs.length)];
+  const cand = pairs.filter(p => !(p.from === o1.from && p.to === o1.to) && !(p.from === o1.to && p.to === o1.from));
+  const o2 = cand.length ? cand[Math.floor(Math.random() * cand.length)] : pairs[Math.floor(Math.random() * pairs.length)];
+  return [{ id: 0, from: o1.from, to: o1.to }, { id: 1, from: o2.from, to: o2.to }];
+}
+function tradeResult(from, to, amt) {
+  if (from === 'gold') return Math.floor(amt / 20 * 70);
+  if (to === 'gold') return Math.floor(amt / 100 * 20);
+  return Math.floor(amt / 100 * 70);
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log('Чотири Імперії Balance v2 — сервер на порту ' + PORT));

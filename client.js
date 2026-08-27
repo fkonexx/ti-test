@@ -28,7 +28,7 @@ const RARE = { 3: '🌳', 4: '🌾', 5: '⛰', 6: '💰' };
 const CNAME = { red: 'червона', blue: 'синя', green: 'зелена', yellow: 'жовта' };
 const FLAG_RADIUS = 3;
 
-const SPRITE_NAME = { guild: 'guild', mine: 'mine', lumber: 'wood', farm: 'farm', barracks: 'barn', tower: 'tower', cannon: 'canon', workshop: 'workshop', wall: 'wall', landmine: 'explosive', flag: 'flag', sword: 'sword', archer: 'archer', mage: 'mage', assassin: 'assassin', catapult: 'catapult', ram: 'ram', spear: 'spear', priest: 'healer', commander: 'commander', scout: 'peecker' };
+const SPRITE_NAME = { guild: 'guild', mine: 'mine', lumber: 'wood', farm: 'farm', barracks: 'barn', tower: 'tower', cannon: 'canon', workshop: 'workshop', market: 'bazaar', arsenal: 'arsenal', wall: 'wall', landmine: 'explosive', flag: 'flag', sword: 'sword', archer: 'archer', mage: 'mage', assassin: 'assassin', catapult: 'catapult', ram: 'ram', spear: 'spear', priest: 'healer', commander: 'commander', scout: 'peecker' };
 const SPR = {};
 for (const color of ['red', 'blue', 'green', 'yellow']) { SPR[color] = {}; for (const t in SPRITE_NAME) { const im = new Image(); im.src = 'assets/' + color + '_' + SPRITE_NAME[t] + '.png'; SPR[color][t] = im; } }
 function sprite(color, type) { const im = SPR[color] && SPR[color][type]; return im && im.complete && im.naturalWidth ? im : null; }
@@ -36,15 +36,15 @@ const BSIZE = { guild: 2.2, mine: 1.7, lumber: 1.7, farm: 1.7, barracks: 1.8, wa
 const USIZE = { commander: 1.4, ram: 1.35, catapult: 1.35, scout: 1.2, priest: 1.15 };
 
 // баланс: має збігатися з сервером
-const COST = { farm: { wood: 30, stone: 15, gold: 15 }, lumber: { wood: 15, stone: 30, gold: 15 }, mine: { wood: 35, stone: 15, gold: 15 }, barracks: { wood: 60, stone: 60, gold: 30 }, wall: { wood: 10, stone: 20 }, tower: { wood: 50, stone: 80, gold: 40 }, cannon: { wood: 70, stone: 120, gold: 70 }, workshop: { wood: 80, stone: 100, gold: 60 }, landmine: { wood: 10, stone: 35, gold: 20 } };
+const COST = { farm: { wood: 30, stone: 15, gold: 15 }, lumber: { wood: 15, stone: 30, gold: 15 }, mine: { wood: 35, stone: 15, gold: 15 }, barracks: { wood: 60, stone: 60, gold: 30 }, wall: { wood: 10, stone: 20 }, tower: { wood: 50, stone: 80, gold: 40 }, cannon: { wood: 70, stone: 120, gold: 70 }, workshop: { wood: 80, stone: 100, gold: 60 }, market: { wood: 45, stone: 35, gold: 25 }, arsenal: { wood: 150, stone: 180, gold: 150 }, landmine: { wood: 10, stone: 35, gold: 20 } };
 const FLAG_COST = { wood: 100, stone: 100, gold: 250 };
 const UCOST = { sword: { food: 18, gold: 12 }, archer: { food: 16, gold: 16 }, mage: { food: 20, gold: 28 }, spear: { food: 22, gold: 20 }, priest: { food: 25, gold: 35 }, assassin: { food: 22, gold: 32 }, catapult: { food: 20, gold: 45, wood: 30, stone: 20 }, ram: { food: 20, gold: 50, wood: 50, stone: 30 }, commander: { food: 35, gold: 75 } };
 const UNLOCK = { sword: 1, archer: 1, mage: 2, spear: 3, priest: 3, assassin: 4, catapult: 4, ram: 5, commander: 5 };
 const TECH_COST = [1, 2, 3, 5, 7];
-const TECH = [['construction', 'Будівництво', 'відкриває споруди'], ['army', 'Армія', 'відкриває воїнів'], ['influence', 'Вплив', 'ширша зона від гільдії'], ['mining', 'Шахтарство', '+ камінь'], ['lumber', 'Лісорубство', '+ дерево'], ['farming', 'Фермерство', '+ їжа'], ['warfare', 'Військова справа', '+6% шкоди, +5% HP/рів.'], ['defense', 'Захист', '+6% HP споруд/рів.'], ['scouting', 'Розвідка', 'розвідник, прапори, детекція мін'], ['engineering', 'Інженерія', 'швидші жетони']];
+const TECH = [['construction', 'Будівництво', 'відкриває споруди'], ['army', 'Армія', 'відкриває воїнів'], ['influence', 'Вплив', 'ширша зона від гільдії'], ['mining', 'Шахтарство', '+ камінь'], ['lumber', 'Лісорубство', '+ дерево'], ['farming', 'Фермерство', '+ їжа'], ['defense', 'Захист', '+6% HP споруд/рів.'], ['scouting', 'Розвідка', 'розвідник, прапори, детекція мін'], ['engineering', 'Інженерія', 'швидші жетони']];
 const UNIT_INFO = [['sword', 'Мечник', 1], ['archer', 'Лучниця', 1], ['mage', 'Маг', 2], ['spear', 'Списоносець', 3], ['priest', 'Священник', 3], ['assassin', 'Ассасін', 4], ['catapult', 'Катапульта', 4], ['ram', 'Таран', 5], ['commander', 'Командир', 5]];
-const BUILD_INFO = [['farm', 'Ферма', 1], ['lumber', 'Лісорубка', 1], ['mine', 'Шахта', 1], ['barracks', 'Казарма', 2], ['wall', 'Стіна', 2], ['tower', 'Вежа', 3], ['cannon', 'Пушка', 4], ['workshop', 'Майстерня', 4], ['landmine', 'Міна', 5]];
-const BNAME = { guild: 'Гільдія', farm: 'Ферма', lumber: 'Лісорубка', mine: 'Шахта', barracks: 'Казарма', wall: 'Стіна', tower: 'Вежа', cannon: 'Пушка', workshop: 'Майстерня', landmine: 'Міна', flag: 'Прапор' };
+const BUILD_INFO = [['farm', 'Ферма', 1], ['lumber', 'Лісорубка', 1], ['mine', 'Шахта', 1], ['barracks', 'Казарма', 2], ['wall', 'Стіна', 2], ['market', 'Базар', 2], ['tower', 'Вежа', 3], ['cannon', 'Пушка', 4], ['workshop', 'Майстерня', 4], ['arsenal', 'Арсенал', 5], ['landmine', 'Міна', 5]];
+const BNAME = { guild: 'Гільдія', farm: 'Ферма', lumber: 'Лісорубка', mine: 'Шахта', barracks: 'Казарма', wall: 'Стіна', tower: 'Вежа', cannon: 'Пушка', workshop: 'Майстерня', market: 'Базар', arsenal: 'Арсенал', landmine: 'Міна', flag: 'Прапор' };
 const RESNAME = { wood: 'дерево', stone: 'камінь', food: 'їжа', gold: 'золото' };
 const MELEE = { sword: 1, spear: 1, assassin: 1 };
 const CUR = {};
@@ -99,12 +99,12 @@ socket.on('lobby', d => {
   el.lobbyHint.textContent = `Готові: ${readyN}/${d.players.length}` + (enough ? ' — гра почнеться, коли всі натиснуть «Готово»' : ' — потрібно мінімум 2 гравці');
 });
 socket.on('errorMsg', m => alert(m));
-socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); show('game'); resize(); ensurePeaceEl(); if (me.debug) createDbgBar(); banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
+socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); show('game'); resize(); ensurePeaceEl(); ensurePanels(); if (me.debug) createDbgBar(); banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
 socket.on('state', s => onState(s));
 socket.on('gameOver', d => showEnd(d));
 
 function show(name) { el.menu.classList.add('hidden'); el.lobby.classList.add('hidden'); el.game.classList.add('hidden'); el[name].classList.remove('hidden'); }
-function clearSel() { sel.units.clear(); sel.building = null; sel.scout = false; buildMode = null; attackMode = false; buildable = null; modes(); refreshCtx(); }
+function clearSel() { sel.units.clear(); sel.building = null; sel.scout = false; buildMode = null; attackMode = false; buildable = null; modes(); refreshCtx(); closePanels && closePanels(); }
 function resetFog() { if (gridArr) { gridArr.fill(-2); seen.fill(0); mem.fill(-1); } }
 
 function ensurePeaceEl() { if (peaceEl) return; peaceEl = document.createElement('div'); peaceEl.id = 'peace'; document.getElementById('game').appendChild(peaceEl); }
@@ -122,7 +122,7 @@ function onState(s) {
   if (sel.building != null && !s.buildings.some(b => b.i === sel.building)) sel.building = null;
   if (s.shots) for (const sh of s.shots) { projectiles.push({ x: sh.x, y: sh.y, tx: sh.tx, ty: sh.ty, k: sh.k, t: 0, dur: sh.k === 'ball' ? 0.35 : 0.2 }); sfxShoot(); }
   if (!camInit) { centerOnGuild(); camInit = true; }
-  updateRes(); updateArmyBtn(); updateScoutBtn(); updatePeace(); refreshCtx();
+  updateRes(); updateArmyBtn(); updateScoutBtn(); updatePeace(); refreshCtx(); renderMarket(); renderArsenal();
   if (el.techPanel && !el.techPanel.classList.contains('hidden')) renderTech();
 }
 function centerOnGuild() { const g = st && st.buildings.find(b => b.o === me.index && b.t === 'guild'); if (!g) return; camX = innerWidth / 2 - (g.x * CELL + CELL / 2); camY = innerHeight / 2 - (g.y * CELL + CELL / 2); }
@@ -168,6 +168,7 @@ function sendMove(col, row) { if (!sel.units.size) return; if (st.peace > 0 && !
 
 function toggle(which) { const u = which === 'unit'; const su = u && el.unitMenu.classList.contains('hidden'); const sb = !u && el.buildMenu.classList.contains('hidden'); closeMenus(); if (su) { refreshUnitMenu(); el.unitMenu.classList.remove('hidden'); } if (sb) { refreshBuildMenu(); el.buildMenu.classList.remove('hidden'); } }
 function closeMenus() { el.unitMenu.classList.add('hidden'); el.buildMenu.classList.add('hidden'); el.techPanel && el.techPanel.classList.add('hidden'); }
+function closePanels() { if (marketPanel) marketPanel.classList.add('hidden'); if (arsenalPanel) arsenalPanel.classList.add('hidden'); }
 function costStr(c) { const p = []; if (c.wood) p.push(curIcon('wood','🌲') + c.wood); if (c.stone) p.push(curIcon('stone','⛏') + c.stone); if (c.food) p.push(curIcon('food','🍞') + c.food); if (c.gold) p.push(curIcon('gold','💰') + c.gold); return p.join(' '); }
 function canAfford(c) { const r = st && st.me ? st.me.res : {}; return (r.wood || 0) >= (c.wood || 0) && (r.stone || 0) >= (c.stone || 0) && (r.food || 0) >= (c.food || 0) && (r.gold || 0) >= (c.gold || 0); }
 function refreshUnitMenu() {
@@ -185,7 +186,14 @@ function refreshUnitMenu() {
 }
 function refreshBuildMenu() {
   const lvl = st && st.me ? st.me.tech.construction : 0;
-  let html = BUILD_INFO.map(([k, n, req]) => { const c = COST[k]; const locked = lvl < req; const poor = !locked && !canAfford(c); return `<button class="btn s" data-b="${k}" ${locked ? 'disabled' : ''} style="${poor ? 'opacity:.55' : ''}">${n}<small>${locked ? '🔒 Будів. ' + req : costStr(c)}</small></button>`; }).join('');
+  let html = BUILD_INFO.map(([k, n, req]) => {
+    const c = COST[k]; let locked = lvl < req, note = locked ? '🔒 Будів. ' + req : costStr(c);
+    if (!locked && k === 'workshop' && st.me.workshops >= 1) { locked = true; note = '1 макс'; }
+    if (!locked && k === 'market' && st.me.hasMarket) { locked = true; note = '1 макс'; }
+    if (!locked && k === 'arsenal' && st.me.hasArsenal) { locked = true; note = '1 макс'; }
+    const poor = !locked && !canAfford(c);
+    return `<button class="btn s" data-b="${k}" ${locked ? 'disabled' : ''} style="${poor ? 'opacity:.55' : ''}">${n}<small>${note}</small></button>`;
+  }).join('');
   if (st && st.me && st.me.flagCap > 0) { const dis = st.me.flagsTotal >= st.me.flagCap || !canAfford(FLAG_COST); html += `<button class="btn s flagbuy" data-flag="1" ${dis ? 'disabled' : ''}>🚩 Купити прапор<small>${st.me.flagsTotal}/${st.me.flagCap} · ${costStr(FLAG_COST)}</small></button>`; }
   el.buildMenu.innerHTML = html;
   el.buildMenu.querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.flag) { buyFlag(); closeMenus(); return; } buildMode = b.dataset.b; attackMode = false; closeMenus(); computeBuildable(); modes(); });
@@ -324,11 +332,13 @@ function tap(px, py) {
   const b = st.buildings.find(bb => bb.t !== 'landmine' && bb.x === col && bb.y === row) || st.buildings.find(bb => bb.x === col && bb.y === row);
   if (b) {
     if (b.o === me.index && b.rd) { socket.emit('command', { type: 'collect', building: b.i }); sfx('build'); return; }
+    if (b.o === me.index && b.t === 'market') { sel.building = b.i; sel.units.clear(); sel.scout = false; sfx('select'); openMarket(); refreshCtx(); return; }
+    if (b.o === me.index && b.t === 'arsenal') { sel.building = b.i; sel.units.clear(); sel.scout = false; sfx('select'); openArsenal(); refreshCtx(); return; }
     if (b.o === me.index || !b.en) { sel.building = b.i; sel.units.clear(); sel.scout = false; banner(`${b.o === me.index ? '' : (CNAME[IDX[b.o]] + ' ')}${BNAME[b.t] || 'Споруда'} — HP ${b.h}/${b.m}`); sfx('select'); refreshCtx(); return; }
   }
   // інакше: якщо є вибрані воїни — рух; якщо ні — зняти вибір
   if (sel.units.size) { sendMove(col, row); }
-  else { sel.building = null; sel.scout = false; refreshCtx(); hideBanner(); }
+  else { sel.building = null; sel.scout = false; refreshCtx(); hideBanner(); closePanels(); }
 }
 
 function draw() {
@@ -336,7 +346,7 @@ function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, innerWidth, innerHeight);
   if (!st || !biomes || !gridArr) return;
   for (const id in renderU) { const r = renderU[id]; const dx = r.tx - r.x, dy = r.ty - r.y; r.x += dx * 0.22; r.y += dy * 0.22; const sp = Math.hypot(dx, dy); if (sp > 0.04) r.ang = lerpAng(r.ang, Math.atan2(dy, dx), 0.15); if (r.swing > 0) r.swing -= 1 / 60; if (r.healT > 0) r.healT -= 1 / 60; }
-  darkness += ((st.night ? 0.42 : 0) - darkness) * 0.03; rain += ((st.weather === 'rain' ? 1 : 0) - rain) * 0.03;
+  darkness += ((st.night ? 0.28 : 0) - darkness) * 0.03; rain += ((st.weather === 'rain' ? 1 : 0) - rain) * 0.03;
   ctx.save(); ctx.translate(camX, camY);
   drawTiles(); drawMines(); drawBuildings(); drawUnits(); drawProjectiles(); drawEffects();
   if (selectMode && box && moved) { const x0 = Math.min(box.x0, box.x1) - camX, y0 = Math.min(box.y0, box.y1) - camY, w = Math.abs(box.x1 - box.x0), h = Math.abs(box.y1 - box.y0); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(x0, y0, w, h); ctx.setLineDash([]); ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(x0, y0, w, h); }
@@ -366,9 +376,10 @@ function rect(c, s) { ctx.fillStyle = c; ctx.fillRect(-s, -s, s * 2, s * 2); }
 function tri(cx, cy, s) { ctx.beginPath(); ctx.moveTo(cx, cy - s); ctx.lineTo(cx + s, cy + s); ctx.lineTo(cx - s, cy + s); ctx.closePath(); ctx.fill(); }
 function ring(c, r) { ctx.strokeStyle = c + '44'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(0, 0, r * CELL, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
 function drawMines() {   // нижній шар — під спорудами та героями
-  for (const b of st.buildings) if (b.t === 'landmine') drawMine(b, b.x * CELL + CELL / 2, b.y * CELL + CELL / 2, COL[IDX[b.o]]);
+  for (const b of st.buildings) if (b.t === 'landmine') { const x = b.x * CELL + CELL / 2 + camX, y = b.y * CELL + CELL / 2 + camY; if (offscreen(x, y)) continue; drawMine(b, b.x * CELL + CELL / 2, b.y * CELL + CELL / 2, COL[IDX[b.o]]); }
 }
 function wallConn() { const m = new Map(); for (const b of st.buildings) if (b.t === 'wall') m.set(b.y * W + b.x, b.o); return m; }
+function offscreen(x, y) { return x < -CELL * 3 || x > innerWidth + CELL * 3 || y < -CELL * 3 || y > innerHeight + CELL * 3; }
 function drawWall(b, x, y, c, wm) {
   const own = b.o; const H2 = CELL / 2;
   const has = (dx, dy) => wm.get((b.y + dy) * W + (b.x + dx)) === own;
@@ -388,22 +399,23 @@ function drawWall(b, x, y, c, wm) {
   ctx.fillStyle = metalDk; ctx.fillRect(x - ns, y - ns, ns * 2, ns * 2);
   ctx.fillStyle = metal; ctx.fillRect(x - ns * 0.84, y - ns * 0.84, ns * 1.68, ns * 1.68);
   ctx.fillStyle = metalHi; ctx.fillRect(x - ns * 0.84, y - ns * 0.84, ns * 1.68, ns * 0.22);
-  // світне ядро вузла
-  const grad = ctx.createRadialGradient(x, y, 1, x, y, ns * 0.75);
-  grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.35, c); grad.addColorStop(1, c + '22');
-  ctx.fillStyle = grad; ctx.fillRect(x - ns * 0.52, y - ns * 0.52, ns * 1.04, ns * 1.04);
+  // світне ядро вузла (суцільні заливки — дешево навіть для сотень стін)
+  ctx.fillStyle = c; ctx.fillRect(x - ns * 0.52, y - ns * 0.52, ns * 1.04, ns * 1.04);
+  ctx.fillStyle = '#ffffff55'; ctx.fillRect(x - ns * 0.22, y - ns * 0.22, ns * 0.44, ns * 0.44);
 }
 function drawBuildings() {
   const wm = wallConn();
   for (const b of st.buildings) {
     const x = b.x * CELL + CELL / 2, y = b.y * CELL + CELL / 2, c = COL[IDX[b.o]], col = IDX[b.o];
     if (b.t === 'landmine') continue;
+    if (offscreen(x + camX, y + camY)) continue;
     if ((b.t === 'tower' || b.t === 'cannon')) { ctx.save(); ctx.translate(x, y); ring(c, BUILD_RANGE[b.t]); ctx.restore(); }
     if (sel.building === b.i) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(b.x * CELL + 1, b.y * CELL + 1, CELL - 2, CELL - 2); }
     const im = sprite(col, b.t);
     if (b.t === 'wall') drawWall(b, x, y, c, wm);
     else if (im) drawSpr(im, x, y, CELL * (BSIZE[b.t] || 1.6)); else drawBuildingShape(b, x, y, c);
     if (b.t === 'guild' && b.gl != null) { ctx.font = 'bold ' + Math.round(CELL * 0.5) + 'px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#0d1017'; ctx.strokeText('★' + b.gl, x, y - CELL * 1.25); ctx.fillStyle = c; ctx.fillText('★' + b.gl, x, y - CELL * 1.25); ctx.textAlign = 'left'; }
+    if (b.t === 'arsenal' && b.al != null) { ctx.font = 'bold ' + Math.round(CELL * 0.42) + 'px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#0d1017'; ctx.strokeText('Lv.' + b.al, x, y - CELL * 1.05); ctx.fillStyle = '#ffcf6a'; ctx.fillText('Lv.' + b.al, x, y - CELL * 1.05); ctx.textAlign = 'left'; if (b.aup != null && b.o === me.index) { const w = CELL * 0.9; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w, 4); ctx.fillStyle = '#ffcf6a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w * b.aup, 4); } }
     if (b.t === 'barracks' && b.q) { const w = CELL * 0.8; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w, 4); ctx.fillStyle = '#f5c542'; ctx.fillRect(x - w / 2, y + CELL * 0.5, w * (b.prog || 0), 4); if (b.q > 1) { ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'; ctx.fillText('x' + b.q, x + w / 2 - 2, y + CELL * 0.5 - 2); } }
     if (b.rk && b.o === me.index) { if (b.rd) { ctx.font = 'bold ' + Math.round(CELL * 0.7) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffdf5a'; ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 3; ctx.strokeText('!', x, y - CELL * 0.9); ctx.fillText('!', x, y - CELL * 0.9); ctx.textAlign = 'left'; } else { const w = CELL * 0.7; ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2, y + CELL * 0.62, w, 3); ctx.fillStyle = '#6fcf97'; ctx.fillRect(x - w / 2, y + CELL * 0.62, w * (b.tp || 0), 3); } }
     hpBar(x, y - CELL * (im ? 0.78 : 0.5), b.h, b.m, CELL * 0.85);
@@ -437,12 +449,15 @@ function drawBuildingShape(b, x, y, c) {
   else if (t === 'tower') { ctx.fillStyle = c; tri(0, 0, CELL * 0.34); }
   else if (t === 'cannon') { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, CELL * 0.24, 0, 7); ctx.fill(); ctx.fillStyle = '#0d1017'; ctx.fillRect(0, -CELL * 0.06, CELL * 0.32, CELL * 0.12); }
   else if (t === 'workshop') { const s = CELL * 0.36; ctx.fillStyle = c; ctx.fillRect(-s, -s * 0.6, s * 2, s * 1.4); ctx.fillStyle = '#0d1017'; ctx.beginPath(); ctx.arc(-s * 0.3, 0, s * 0.28, 0, 7); ctx.fill(); ctx.beginPath(); ctx.arc(s * 0.4, s * 0.1, s * 0.2, 0, 7); ctx.fill(); }
+  else if (t === 'market') { ctx.fillStyle = c; ctx.fillRect(-CELL * 0.34, -CELL * 0.02, CELL * 0.68, CELL * 0.36); ctx.fillStyle = '#0d1017'; for (let i = -1; i <= 1; i++) ctx.fillRect(i * CELL * 0.22 - CELL * 0.045, -CELL * 0.02, CELL * 0.09, CELL * 0.36); ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(-CELL * 0.4, -CELL * 0.02); ctx.lineTo(0, -CELL * 0.3); ctx.lineTo(CELL * 0.4, -CELL * 0.02); ctx.closePath(); ctx.fill(); }
+  else if (t === 'arsenal') { const s2 = CELL * 0.36; ctx.fillStyle = '#3a3f4a'; ctx.fillRect(-s2, -s2 * 0.8, s2 * 2, s2 * 1.6); ctx.fillStyle = c; ctx.fillRect(-s2 * 0.78, -s2 * 0.58, s2 * 1.56, s2 * 1.16); ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-s2 * 0.38, -s2 * 0.38); ctx.lineTo(s2 * 0.38, s2 * 0.38); ctx.moveTo(s2 * 0.38, -s2 * 0.38); ctx.lineTo(-s2 * 0.38, s2 * 0.38); ctx.stroke(); }
   else if (t === 'flag') { ctx.strokeStyle = '#0d1017'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, CELL * 0.32); ctx.lineTo(0, -CELL * 0.34); ctx.stroke(); ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(0, -CELL * 0.34); ctx.lineTo(CELL * 0.28, -CELL * 0.24); ctx.lineTo(0, -CELL * 0.12); ctx.closePath(); ctx.fill(); }
   ctx.restore();
 }
 function drawUnits() {
   for (const id in renderU) {
     const u = renderU[id], x = u.x * CELL + CELL / 2, y = u.y * CELL + CELL / 2, c = COL[IDX[u.o]], col = IDX[u.o];
+    if (offscreen(x + camX, y + camY)) continue;
     if (u.o === me.index && sel.units.has(+id)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y + CELL * 0.12, CELL * 0.32, 0, 7); ctx.stroke(); }
     const type = u.s ? 'scout' : u.t;
     let rot = u.ang - Math.PI / 2;   // завжди зберігаємо напрямок (без сіпання в нейтраль)
@@ -524,9 +539,69 @@ function showEnd(d) {
 function pseudoFS() {
   document.body.classList.toggle('pseudo-fs');
   const on = document.body.classList.contains('pseudo-fs');
-  if (on) { try { window.scrollTo(0, 1); } catch (e) {} banner('На iPhone повний екран залежить від Safari — або додай гру на головний екран'); }
+  if (on) { try { window.scrollTo(0, 1); } catch (e) {} banner('Для повного екрана без адресної стрічки: Поділитися → «На початковий екран», і запусти з іконки'); }
   setTimeout(resize, 80);
 }
+
+// ================= Базар / Арсенал =================
+const RES_EMO = { wood: '🌲', stone: '⛏', food: '🍞', gold: '💰' };
+const RESUA = { wood: 'Дерево', stone: 'Камінь', food: 'Їжа', gold: 'Золото' };
+let marketPanel = null, arsenalPanel = null, marketAmt = [100, 100];
+function ensurePanels() {
+  if (!marketPanel) { marketPanel = document.createElement('div'); marketPanel.id = 'marketPanel'; marketPanel.className = 'sidepanel hidden'; document.getElementById('game').appendChild(marketPanel); }
+  if (!arsenalPanel) { arsenalPanel = document.createElement('div'); arsenalPanel.id = 'arsenalPanel'; arsenalPanel.className = 'sidepanel hidden'; document.getElementById('game').appendChild(arsenalPanel); }
+}
+function openMarket() { closeMenus(); if (arsenalPanel) arsenalPanel.classList.add('hidden'); marketPanel.classList.remove('hidden'); renderMarket(); }
+function closeMarket() { if (marketPanel) marketPanel.classList.add('hidden'); }
+function openArsenal() { closeMenus(); if (marketPanel) marketPanel.classList.add('hidden'); arsenalPanel.classList.remove('hidden'); renderArsenal(); }
+function closeArsenal() { if (arsenalPanel) arsenalPanel.classList.add('hidden'); }
+function tradeCalc(from, to, amt) { if (from === 'gold') return Math.floor(amt / 20 * 70); if (to === 'gold') return Math.floor(amt / 100 * 20); return Math.floor(amt / 100 * 70); }
+function renderMarket() {
+  if (!marketPanel || marketPanel.classList.contains('hidden') || !st || !st.me) return;
+  const day = !st.night, cd = st.me.marketCd || 0, offers = st.offers || [];
+  let h = `<div class="pnhead">🏪 БАЗАР <span class="pnstatus">${day ? '☀️ ВІДКРИТО' : '🌙 ЗАКРИТО ДО СВІТАНКУ'}</span><button class="pnx" data-x>✕</button></div>`;
+  offers.forEach((o, i) => {
+    const avail = st.me.res[o.from] || 0;
+    if (marketAmt[i] === undefined) marketAmt[i] = Math.min(100, avail);
+    let amt = Math.max(0, Math.min(marketAmt[i], avail)); marketAmt[i] = amt;
+    const get = tradeCalc(o.from, o.to, amt);
+    const base = o.from === 'gold' ? 20 : 100, brate = tradeCalc(o.from, o.to, base);
+    const dis = !day || cd > 0 || amt <= 0 || amt > avail;
+    h += `<div class="pnoffer"><div class="pnrow">${curIcon(o.from, RES_EMO[o.from])} ${RESUA[o.from]} → ${curIcon(o.to, RES_EMO[o.to])} ${RESUA[o.to]}</div>` +
+      `<div class="pnsub">${base} = ${brate}</div>` +
+      `<div class="pnsteps" data-i="${i}"><button data-d="-100">-100</button><button data-d="-10">-10</button><span class="pnamt">${amt}</span><button data-d="10">+10</button><button data-d="100">+100</button><button data-d="max">MAX</button></div>` +
+      `<div class="pnprev">Віддаєте ${amt} ${curIcon(o.from, RES_EMO[o.from])} → Отримуєте ${get} ${curIcon(o.to, RES_EMO[o.to])}</div>` +
+      `<button class="pnbtn" data-t="${i}" ${dis ? 'disabled' : ''}>${cd > 0 ? ('⏳ ' + cd + 'с') : '🔄 ОБМІНЯТИ'}</button></div>`;
+  });
+  marketPanel.innerHTML = h;
+  marketPanel.querySelector('[data-x]').onclick = closeMarket;
+  marketPanel.querySelectorAll('.pnsteps').forEach(row => { const i = +row.dataset.i; row.querySelectorAll('button').forEach(bt => bt.onclick = () => { const av = st.me.res[st.offers[i].from] || 0, d = bt.dataset.d; if (d === 'max') marketAmt[i] = av; else marketAmt[i] = Math.max(0, Math.min(av, (marketAmt[i] || 0) + parseInt(d))); renderMarket(); }); });
+  marketPanel.querySelectorAll('.pnbtn').forEach(bt => bt.onclick = () => { const i = +bt.dataset.t; socket.emit('command', { type: 'trade', offer: i, amount: marketAmt[i] }); });
+}
+function arsenalCostC(L) { return { wood: 60 + 15 * L, stone: 60 + 15 * L, food: 40 + 10 * L, gold: 40 + 10 * L }; }
+function arsenalTokC(L) { return L >= 25 ? 5 : L >= 20 ? 4 : L >= 15 ? 3 : L >= 10 ? 2 : L >= 5 ? 1 : 0; }
+function renderArsenal() {
+  if (!arsenalPanel || arsenalPanel.classList.contains('hidden') || !st || !st.me) return;
+  const L = st.me.arsenalLevel || 0, up = st.me.arsenalUp;
+  const hp = Math.round((0.03 * L + (L >= 10 ? 0.10 : 0) + (L >= 20 ? 0.10 : 0)) * 100);
+  const dmg = Math.round(0.02 * L * 100);
+  const beff = 35 + (L >= 5 ? 5 : 0) + (L >= 15 ? 5 : 0) + (L >= 25 ? 5 : 0);
+  let h = `<div class="pnhead">🏛 АРСЕНАЛ<button class="pnx" data-x>✕</button></div>` +
+    `<div class="arlvl">Рівень: <b>${L}</b> / 25</div>` +
+    `<div class="arbon">❤️ HP: +${hp}%&nbsp;&nbsp;⚔️ Шкода: +${dmg}%&nbsp;&nbsp;🏰 По спорудах: ${beff}%</div>`;
+  if (up) { const prog = Math.round((1 - up.time / up.total) * 100); h += `<div class="arnext">Покращення до рівня ${up.target}… ${up.time}с</div><div class="arbar"><span style="width:${prog}%"></span></div>`; }
+  else if (L >= 25) { h += `<div class="arnext">МАКСИМАЛЬНИЙ РІВЕНЬ</div>`; }
+  else {
+    const nl = L + 1, cc = arsenalCostC(nl), tok = arsenalTokC(nl), tm = 15 + 3 * nl;
+    const afford = st.me.res.wood >= cc.wood && st.me.res.stone >= cc.stone && st.me.res.food >= cc.food && st.me.res.gold >= cc.gold && st.me.res.tokens >= tok;
+    h += `<div class="arnext">Рівень ${nl}: ${costStr({ wood: cc.wood, stone: cc.stone, food: cc.food, gold: cc.gold })}${tok > 0 ? (' + ' + tok + ' ' + curIcon('tokens', '🔧')) : ''} · ⏱ ${tm}с</div>` +
+      `<button class="pnbtn" data-up ${afford ? '' : 'disabled'}>ПОКРАЩИТИ ДО РІВНЯ ${nl}</button>`;
+  }
+  arsenalPanel.innerHTML = h;
+  arsenalPanel.querySelector('[data-x]').onclick = closeArsenal;
+  const b = arsenalPanel.querySelector('[data-up]'); if (b) b.onclick = () => socket.emit('command', { type: 'arsenalUpgrade' });
+}
+
 function toggleFullscreen() {
   try {
     const de = document.documentElement;
