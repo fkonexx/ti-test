@@ -28,12 +28,12 @@ const RARE = { 3: '🌳', 4: '🌾', 5: '⛰', 6: '💰' };
 const CNAME = { red: 'червона', blue: 'синя', green: 'зелена', yellow: 'жовта' };
 const FLAG_RADIUS = 3;
 
-const SPRITE_NAME = { guild: 'guild', mine: 'mine', lumber: 'wood', farm: 'farm', barracks: 'barn', tower: 'tower', cannon: 'canon', workshop: 'workshop', market: 'bazaar', arsenal: 'arsenal', wall: 'wall', landmine: 'explosive', flag: 'flag', sword: 'sword', archer: 'archer', mage: 'mage', assassin: 'assassin', catapult: 'catapult', ram: 'ram', spear: 'spear', priest: 'healer', commander: 'commander', scout: 'peecker', proclaimer: 'proclaimer', trader: 'trader' };
+const SPRITE_NAME = { guild: 'guild', mine: 'mine', lumber: 'wood', farm: 'farm', barracks: 'barn', tower: 'tower', cannon: 'canon', workshop: 'workshop', market: 'bazaar', arsenal: 'arsenal', wall: 'wall', landmine: 'explosive', flag: 'flag', sword: 'sword', archer: 'archer', mage: 'mage', assassin: 'assassin', catapult: 'catapult', ram: 'ram', spear: 'spear', priest: 'healer', commander: 'commander', scout: 'peecker', proclaimer: 'proclaimer', trader: 'traider' };
 const SPR = {};
 for (const color of ['red', 'blue', 'green', 'yellow']) { SPR[color] = {}; for (const t in SPRITE_NAME) { const im = new Image(); im.src = 'assets/' + color + '_' + SPRITE_NAME[t] + '.png'; SPR[color][t] = im; } }
 function sprite(color, type) { const im = SPR[color] && SPR[color][type]; return im && im.complete && im.naturalWidth ? im : null; }
 const BSIZE = { guild: 2.2, mine: 1.7, lumber: 1.7, farm: 1.7, barracks: 1.8, wall: 1.3, tower: 1.6, cannon: 1.3, workshop: 1.8, landmine: 0.78, flag: 1.5 };
-const USIZE = { commander: 1.4, ram: 1.35, catapult: 1.35, scout: 1.2, priest: 1.15, proclaimer: 1.2, trader: 1.2 };
+const USIZE = { commander: 1.4, ram: 1.35, catapult: 1.35, scout: 1.2, priest: 1.15, proclaimer: 0.9, trader: 0.9 };
 
 // баланс: має збігатися з сервером
 const COST = { farm: { wood: 30, stone: 15, gold: 15 }, lumber: { wood: 15, stone: 30, gold: 15 }, mine: { wood: 35, stone: 15, gold: 15 }, barracks: { wood: 60, stone: 60, gold: 30 }, wall: { wood: 10, stone: 20 }, tower: { wood: 50, stone: 80, gold: 40 }, cannon: { wood: 70, stone: 120, gold: 70 }, workshop: { wood: 80, stone: 100, gold: 60 }, market: { wood: 110, stone: 90, gold: 70 }, arsenal: { wood: 150, stone: 180, gold: 150 }, landmine: { wood: 10, stone: 35, gold: 20 } };
@@ -161,13 +161,13 @@ function updateRes() {
 function chip(ic, v) { return `<span class="chip">${ic}<b>${v}</b></span>`; }
 function guildChip(lvl, prog) { return `<span class="chip gbar" title="Рівень гільдії"><span class="gfill" style="width:${Math.round(prog * 100)}%"></span>${curIcon('guild','🏛')}<b>${lvl}</b></span>`; }
 function updateArmyBtn() { const b = document.getElementById('armyBtn'); if (!b || !st || !st.me) return; b.innerHTML = `<i>⚔</i>Армія ${st.me.army}/${st.me.cap}`; }
-function updateScoutBtn() { const b = document.getElementById('scoutBtn'); if (!b || !st || !st.me) return; const has = st.me.hasScout; b.disabled = !has; b.style.opacity = has ? '1' : '.45'; }
+function updateScoutBtn() { const b = document.getElementById('scoutBtn'); if (!b) return; b.disabled = false; b.style.opacity = '1'; }
 
 function refreshCtx() {
   if (!el.ctxbar || !st) return; const btns = [];
   if (sel.scout && st.me && st.me.flags > 0) btns.push(`<button class="ctxb" data-a="placeFlag">🚩 Поставити прапор (${st.me.flags})</button>`);
   if (sel.diplo) { const u = diploUnit(); if (u) { const near = nearEnemyGuild(u, 4); const pending = u.prop && u.prop.from === me.index;
-    if (sel.diplo === 'proclaimer') { if (st.me.truce) btns.push('<button class="ctxb" disabled>🤝 Ви вже в мирі</button>'); else if (pending) btns.push('<button class="ctxb" disabled>🕊 Пропозицію надіслано…</button>'); else if (near) btns.push('<button class="ctxb hot" data-a="proposeTruce">🕊 Запропонувати мир</button>'); else btns.push('<button class="ctxb" disabled>Веди до ворожої гільдії (≤4)</button>'); }
+    if (sel.diplo === 'proclaimer') { if (st.me.truce) btns.push('<button class="ctxb" disabled>🤝 Ви вже в мирі</button>'); else if (st.me.peaceCd > 0) btns.push('<button class="ctxb" disabled>🕊 Мир на кулдауні (' + st.me.peaceCd + 'с)</button>'); else if (pending) btns.push('<button class="ctxb" disabled>🕊 Пропозицію надіслано…</button>'); else if (near) btns.push('<button class="ctxb hot" data-a="proposeTruce">🕊 Запропонувати мир</button>'); else btns.push('<button class="ctxb" disabled>Веди до ворожої гільдії (≤4)</button>'); }
     else if (sel.diplo === 'trader') { if (u.carry) btns.push('<button class="ctxb" disabled>💰 Несе ресурси до гільдії…</button>'); else if (pending) btns.push('<button class="ctxb" disabled>🤝 Пропозицію надіслано…</button>'); else if (near) btns.push('<button class="ctxb hot" data-a="proposeTrade">🤝 Запропонувати обмін</button>'); else btns.push('<button class="ctxb" disabled>Веди до ворожої гільдії (≤4)</button>'); } } }
   if (sel.building != null) { const b = st.buildings.find(x => x.i === sel.building); if (b && b.o === me.index) { if (b.rd) btns.push(`<button class="ctxb hot" data-a="collect" data-i="${b.i}">📦 Забрати ${b.am} ${RESNAME[b.rk] || ''}</button>`); if (b.t !== 'guild') btns.push(`<button class="ctxb danger" data-a="demolish" data-i="${b.i}">🗑 Знести</button>`); } }
   if (btns.length) { el.ctxbar.innerHTML = btns.join(''); el.ctxbar.classList.remove('hidden'); el.ctxbar.querySelectorAll('.ctxb').forEach(x => x.onclick = () => ctxAction(x.dataset.a, +x.dataset.i)); }
@@ -638,8 +638,9 @@ let tradeState = { give: 'wood', gamt: 100, want: 'stone', wamt: 100 };
 function selectHeroes() {
   ensurePanels(); closeMenus && closeMenus(); closePanels();
   const cfg = (st && st.cfg) || { proclaimer: true, trader: true };
-  const opts = [['scout', '🔭 Розвідка', true], ['proclaimer', '🕊 Прокламентерка', cfg.proclaimer !== false], ['trader', '💰 Торговець', cfg.trader !== false]];
-  heroMenu.innerHTML = opts.map(([k, l, on]) => `<button class="btn s" data-h="${k}"${on ? '' : ' disabled'}>${l}${on ? '' : ' (вимк)'}</button>`).join('');
+  const scOk = st && st.me && st.me.tech.scouting >= 1;
+  const opts = [['scout', '🔭 Розвідка', scOk, 'купіть «Розвідку»'], ['proclaimer', '🕊 Прокламентерка', cfg.proclaimer !== false, 'вимкнено'], ['trader', '💰 Торговець', cfg.trader !== false, 'вимкнено']];
+  heroMenu.innerHTML = opts.map(([k, l, on, why]) => `<button class="btn s" data-h="${k}"${on ? '' : ' disabled'}>${l}${on ? '' : ' <small>(' + why + ')</small>'}</button>`).join('');
   heroMenu.querySelectorAll('[data-h]:not([disabled])').forEach(b => b.onclick = () => { heroMenu.classList.add('hidden'); pickHero(b.dataset.h); });
   heroMenu.classList.toggle('hidden');
 }

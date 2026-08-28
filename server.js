@@ -36,7 +36,7 @@ const MINE = { hp: 30, arm: 5, trigger: 0.8, boom: 2.0, max: 15, spacing: 2, hea
 const MINE_LETHAL = new Set(['sword', 'archer', 'mage', 'spear', 'assassin', 'priest']);
 const SCOUT_VISION = [0, 7, 8, 9, 11, 13];
 const SCOUT_SPEED = [0, 3.6, 3.9, 4.2, 4.5, 4.8];
-const DIPLO_VISION = 3, DIPLO_SPEED = 3.3, TRUCE_MINUTES = [1, 3, 5, 10], PROPOSAL_TTL = 30, TRADE_PENALTY = 0.85;
+const DIPLO_VISION = 2, DIPLO_SPEED = 3.3, TRUCE_MINUTES = [1, 3, 5, 10], PROPOSAL_TTL = 30, TRADE_PENALTY = 0.85, PEACE_CD = 180;
 const FLAG_CAP = [0, 0, 0, 1, 2, 3];               // за рівнем scouting
 const MINE_DETECT = [0, 0, 0, 2.5, 4, 6];          // за рівнем scouting
 
@@ -142,7 +142,7 @@ function newPlayer(index) {
     res: { wood: 120, stone: 120, food: 100, gold: 80, tokens: 3 },
     tech: { construction: 0, army: 0, influence: 0, mining: 0, lumber: 0, farming: 0, defense: 0, scouting: 0, engineering: 0 },
     guildLevel: 1, guildProg: 0, tokenTimer: TOKEN_BASE,
-    flagsOwned: 0, scoutRespawn: 0, autoCollect: false, arsenalLevel: 0, arsenalUp: null, marketCd: 0, stats: newStats(),
+    flagsOwned: 0, scoutRespawn: 0, autoCollect: false, arsenalLevel: 0, arsenalUp: null, marketCd: 0, peaceCd: 0, stats: newStats(),
   };
 }
 const NORMAL_UNITS = new Set(['sword', 'archer', 'mage', 'spear', 'assassin']);
@@ -227,7 +227,7 @@ function step(room) {
   const speedMul = s.weather === 'rain' ? 0.7 : 1;
   const dayIdx = Math.floor(s.t / DAY_CYCLE);
   if (dayIdx !== s.marketDay) { s.marketDay = dayIdx; s.offers = genOffers(); }
-  for (let i = s.truces.length - 1; i >= 0; i--) if (s.t >= s.truces[i].until) { const tr = s.truces.splice(i, 1)[0]; pushFeed(s, { k: 'truceEnd', a: tr.a, b: tr.b }); }
+  for (let i = s.truces.length - 1; i >= 0; i--) if (s.t >= s.truces[i].until) { const tr = s.truces.splice(i, 1)[0]; pushFeed(s, { k: 'truceEnd', a: tr.a, b: tr.b }); const pa = playerOf(s, tr.a), pb = playerOf(s, tr.b); if (pa) pa.peaceCd = s.t + PEACE_CD; if (pb) pb.peaceCd = s.t + PEACE_CD; }
 
   // економіка / жетони / відродження розвідника
   for (const p of s.players) {
@@ -440,7 +440,7 @@ function serializeEntities(s, o, full, vis) {
   for (const sh of s.shots) if (full || vis[(sh.y | 0) * W + (sh.x | 0)] === 1 || vis[(sh.ty | 0) * W + (sh.tx | 0)] === 1) shots.push(sh);
   return {
     winner: s.winner, t: Math.floor(s.t), peace: Math.ceil(s.peace), units, buildings: builds, shots, weather: s.weather, night: isNight(s), offers: s.offers, feed: s.feed.filter(f => s.t - f.at < 12), cfg: s.cfg || { proclaimer: true, trader: true },
-    me: { index: meP.index, color: meP.color, alive: meP.alive, res: roundRes(meP.res), tech: meP.tech, guildLevel: meP.guildLevel, guildProg: meP.guildProg, army: armyCount(s, o), cap: armyCap(s, o), flags: meP.flagsOwned, flagsTotal: flagCount(s, o), flagCap: flagCapOf(meP), autoCollect: meP.autoCollect, workshops: workshopsOf(s, o).length, mines: mineCount(s, o), hasScout: s.units.some(u => u.owner === o && u.scout), hasCommander: hasCommander(s, o), arsenalLevel: meP.arsenalLevel, arsenalUp: meP.arsenalUp ? { target: meP.arsenalUp.target, time: Math.ceil(meP.arsenalUp.time), total: meP.arsenalUp.total } : null, hasArsenal: s.buildings.some(b => b.owner === o && b.type === 'arsenal' && b.hp > 0), hasMarket: s.buildings.some(b => b.owner === o && b.type === 'market' && b.hp > 0), marketCd: Math.ceil(meP.marketCd), truce: trucePartnerInfo(s, o), hasProclaimer: s.units.some(u => u.owner === o && u.proclaimer), hasTrader: s.units.some(u => u.owner === o && u.trader) },
+    me: { index: meP.index, color: meP.color, alive: meP.alive, res: roundRes(meP.res), tech: meP.tech, guildLevel: meP.guildLevel, guildProg: meP.guildProg, army: armyCount(s, o), cap: armyCap(s, o), flags: meP.flagsOwned, flagsTotal: flagCount(s, o), flagCap: flagCapOf(meP), autoCollect: meP.autoCollect, workshops: workshopsOf(s, o).length, mines: mineCount(s, o), hasScout: s.units.some(u => u.owner === o && u.scout), hasCommander: hasCommander(s, o), arsenalLevel: meP.arsenalLevel, arsenalUp: meP.arsenalUp ? { target: meP.arsenalUp.target, time: Math.ceil(meP.arsenalUp.time), total: meP.arsenalUp.total } : null, hasArsenal: s.buildings.some(b => b.owner === o && b.type === 'arsenal' && b.hp > 0), hasMarket: s.buildings.some(b => b.owner === o && b.type === 'market' && b.hp > 0), marketCd: Math.ceil(meP.marketCd), truce: trucePartnerInfo(s, o), peaceCd: Math.max(0, Math.ceil(meP.peaceCd - s.t)), hasProclaimer: s.units.some(u => u.owner === o && u.proclaimer), hasTrader: s.units.some(u => u.owner === o && u.trader) },
     players: s.players.map(p => ({ index: p.index, color: p.color, alive: p.alive })),
   };
 }
@@ -664,6 +664,7 @@ io.on('connection', (socket) => {
     else if (cmd.type === 'proposeTruce') {
       const mins = TRUCE_MINUTES.includes(cmd.minutes) ? cmd.minutes : 0; if (!mins) return;
       if (inTruce(s, o)) return;
+      if (me.peaceCd > s.t) return;   // кулдаун після відмови/завершення миру
       let pr = null, tg = null, best = 4.5;
       for (const u of s.units) { if (u.owner !== o || !u.proclaimer || u.prop) continue; for (const b of s.buildings) { if (b.type !== 'guild' || b.owner === o) continue; const d = dist(u.x, u.y, b.cx, b.cy); if (d < best) { best = d; pr = u; tg = b; } } }
       if (!pr || !tg || inTruce(s, tg.owner)) return;
@@ -673,6 +674,7 @@ io.on('connection', (socket) => {
       const pr = s.units.find(u => u.proclaimer && u.prop && u.prop.k === 'truce' && u.prop.to === o); if (!pr) return;
       const prop = pr.prop; pr.prop = null;
       if (cmd.accept && !inTruce(s, prop.from) && !inTruce(s, o)) { s.truces.push({ a: prop.from, b: o, until: s.t + prop.minutes * 60 }); pushFeed(s, { k: 'truce', a: prop.from, b: o }); }
+      else if (!cmd.accept) { const pf = playerOf(s, prop.from); if (pf) pf.peaceCd = s.t + PEACE_CD; }   // відмовили -> кулдаун пропонувальнику
     }
     else if (cmd.type === 'proposeTrade') {
       const RES = ['wood', 'stone', 'food', 'gold']; const gr = cmd.give || {}, wr = cmd.want || {};
