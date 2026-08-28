@@ -415,7 +415,7 @@ function serializeEntities(s, o, full, vis) {
   const meP = playerOf(s, o) || s.players[0];
   const units = [];
   for (const u of s.units) {
-    if (u.scout) { units.push({ i: u.id, o: u.owner, t: 'scout', x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 1 }); continue; }
+    if (u.scout) { if (u.owner !== o && !full && !seen(Math.round(u.x), Math.round(u.y))) continue; units.push({ i: u.id, o: u.owner, t: 'scout', x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 1 }); continue; }
     if (u.owner !== o && !full && !seen(Math.round(u.x), Math.round(u.y))) continue;
     if (u.diplo) { const du = { i: u.id, o: u.owner, t: u.type, x: r2(u.x), y: r2(u.y), nc: 1 }; if (u.prop) du.prop = { k: u.prop.k, from: u.prop.from, to: u.prop.to, minutes: u.prop.minutes, give: u.prop.give, want: u.prop.want }; if (u.carry && u.owner === o) du.carry = 1; units.push(du); continue; }
     const uo = { i: u.id, o: u.owner, t: u.type, x: r2(u.x), y: r2(u.y), h: Math.round(u.hp), m: u.maxHp, s: 0 };

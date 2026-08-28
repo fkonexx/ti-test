@@ -61,13 +61,14 @@ window.addEventListener('DOMContentLoaded', () => {
   el.startBtn.onclick = () => { if (me.debug) socket.emit('startGame'); else socket.emit('setReady'); };
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
-  $('attackBtn').onclick = () => { if (attackMode) { attackMode = false; modes(); return; } buildMode = null; buildable = null; closeMenus(); selectAll(); if (sel.units.size === 0) { banner('Немає армії для збору'); modes(); return; } attackMode = true; modes(); };
+  $('attackBtn').onclick = () => { if (sel.diplo) { sel.units.clear(); sel.diplo = null; refreshCtx(); } if (attackMode) { attackMode = false; modes(); return; } buildMode = null; buildable = null; closeMenus(); selectAll(); if (sel.units.size === 0) { banner('Немає армії для збору'); modes(); return; } attackMode = true; modes(); };
   $('armyBtn').onclick = () => { attackMode = false; buildMode = null; buildable = null; toggle('unit'); modes(); };
   $('buildBtn').onclick = () => { if (buildMode) { buildMode = null; buildable = null; modes(); return; } attackMode = false; toggle('build'); modes(); };
   $('scoutBtn').onclick = () => selectHeroes();
   $('techBtn').onclick = () => { attackMode = false; buildMode = null; buildable = null; modes(); closeMenus(); el.techPanel.classList.toggle('hidden'); techSig = ''; renderTech(); };
   $('techClose').onclick = () => el.techPanel.classList.add('hidden');
-  const mb = $('modeBtn'); if (mb) mb.onclick = () => { selectMode = !selectMode; mb.classList.toggle('on', selectMode); mb.innerHTML = selectMode ? '&#9635;<small>Виділення</small>' : '&#128506;<small>Карта</small>'; banner(selectMode ? 'Режим виділення: обведи воїнів пальцем' : 'Режим карти: палець рухає карту'); };
+  const sb = $('selBtn'); if (sb) sb.onclick = () => { selectMode = !selectMode; sb.classList.toggle('on', selectMode); banner(selectMode ? 'Режим виділення: обведи воїнів пальцем' : 'Режим карти: палець рухає карту'); };
+  const mb = $('modeBtn'); if (mb) mb.onclick = () => fitWholeMap();
   const zi = $('zoomIn'), zo = $('zoomOut'), mu = $('muteBtn');
   if (zi) zi.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
   if (zo) zo.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
@@ -153,13 +154,21 @@ function onState(s) {
   if (el.techPanel && !el.techPanel.classList.contains('hidden')) renderTech();
 }
 function centerOnGuild() { const g = st && st.buildings.find(b => b.o === me.index && b.t === 'guild'); if (!g) return; camX = innerWidth / 2 - (g.x * CELL + CELL / 2); camY = innerHeight / 2 - (g.y * CELL + CELL / 2); }
+let resSig = '';
+function buildResHud() {
+  const it = [['wood', '🌲'], ['stone', '⛏'], ['food', '🍞'], ['gold', '💰'], ['tokens', '🔧']];
+  el.res.innerHTML = it.map(([k, e]) => `<span class="chip">${curIcon(k, e)}<b id="res_${k}">0</b></span>`).join('')
+    + `<span class="chip gbar" title="Рівень гільдії"><span class="gfill" id="res_gfill"></span>${curIcon('guild', '🏛')}<b id="res_guild">1</b></span>`;
+}
 function updateRes() {
   if (!st || !st.me) return; const r = st.me.res;
-  el.res.innerHTML = chip(curIcon('wood','🌲'), r.wood) + chip(curIcon('stone','⛏'), r.stone) + chip(curIcon('food','🍞'), r.food) + chip(curIcon('gold','💰'), r.gold) + chip(curIcon('tokens','🔧'), r.tokens) + guildChip(st.me.guildLevel, st.me.guildProg);
+  const sig = ['wood', 'stone', 'food', 'gold', 'tokens', 'guild'].map(k => { const im = CUR[k]; return (im && im.complete && im.naturalWidth) ? '1' : '0'; }).join('');
+  if (sig !== resSig) { buildResHud(); resSig = sig; }   // перебудова лише коли іконки догрузились (раз), не щокадру
+  const set = (k, v) => { const e = document.getElementById('res_' + k); if (e && e.textContent !== String(v)) e.textContent = v; };
+  set('wood', r.wood); set('stone', r.stone); set('food', r.food); set('gold', r.gold); set('tokens', r.tokens); set('guild', st.me.guildLevel);
+  const gf = document.getElementById('res_gfill'); if (gf) gf.style.width = Math.round(st.me.guildProg * 100) + '%';
   if (st.me.alive === false && (st.winner === null || st.winner === undefined)) banner('Вашу гільдію знищено');
 }
-function chip(ic, v) { return `<span class="chip">${ic}<b>${v}</b></span>`; }
-function guildChip(lvl, prog) { return `<span class="chip gbar" title="Рівень гільдії"><span class="gfill" style="width:${Math.round(prog * 100)}%"></span>${curIcon('guild','🏛')}<b>${lvl}</b></span>`; }
 function updateArmyBtn() { const b = document.getElementById('armyBtn'); if (!b || !st || !st.me) return; b.innerHTML = `<i>⚔</i>Армія ${st.me.army}/${st.me.cap}`; }
 function updateScoutBtn() { const b = document.getElementById('scoutBtn'); if (!b) return; b.disabled = false; b.style.opacity = '1'; }
 
@@ -360,7 +369,14 @@ function setupCanvas() {
   canvas.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); if (ptrs.size === 0) { suppress = false; mode = null; box = null; } });
 }
 function resize() { DPR = Math.min(devicePixelRatio || 1, 2); canvas.width = innerWidth * DPR; canvas.height = innerHeight * DPR; }
-function zoomAt(mx, my, ratio) { const old = CELL; let nw = clamp(CELL * ratio, 12, 52); if (Math.abs(nw - old) < 0.01) return; const wx = (mx - camX) / old, wy = (my - camY) / old; CELL = nw; camX = mx - wx * CELL; camY = my - wy * CELL; }
+let mapOverview = false, savedView = null;
+function fitWholeMap() {
+  const mb = document.getElementById('modeBtn');
+  if (!mapOverview) { savedView = { CELL, camX, camY }; const c = Math.min(innerWidth / W, innerHeight / H); CELL = c; camX = (innerWidth - W * c) / 2; camY = (innerHeight - H * c) / 2; mapOverview = true; banner('Уся карта на екрані — «Карта» ще раз, щоб повернутись'); }
+  else { if (savedView) { CELL = savedView.CELL; camX = savedView.camX; camY = savedView.camY; } mapOverview = false; banner('Звичайний масштаб'); }
+  if (mb) mb.classList.toggle('on', mapOverview);
+}
+function zoomAt(mx, my, ratio) { if (mapOverview) { mapOverview = false; const mb = document.getElementById('modeBtn'); if (mb) mb.classList.remove('on'); } const old = CELL; let nw = clamp(CELL * ratio, 12, 52); if (Math.abs(nw - old) < 0.01) return; const wx = (mx - camX) / old, wy = (my - camY) / old; CELL = nw; camX = mx - wx * CELL; camY = my - wy * CELL; }
 function finalizeBox() {
   const x0 = Math.min(box.x0, box.x1), x1 = Math.max(box.x0, box.x1), y0 = Math.min(box.y0, box.y1), y1 = Math.max(box.y0, box.y1); const ids = [];
   for (const u of myUnits()) { const sx = u.x * CELL + CELL / 2 + camX, sy = u.y * CELL + CELL / 2 + camY; if (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1) ids.push(u.i); }
@@ -636,13 +652,16 @@ let tradeState = { give: 'wood', gamt: 100, want: 'stone', wamt: 100 };
 
 // ================= Дипломатія (герої / мир / обмін) =================
 function selectHeroes() {
-  ensurePanels(); closeMenus && closeMenus(); closePanels();
+  ensurePanels();
+  const wasOpen = heroMenu && !heroMenu.classList.contains('hidden');
+  closeMenus && closeMenus(); closePanels();
+  if (wasOpen) return;   // повторний клік по «Герої» — просто закрити
   const cfg = (st && st.cfg) || { proclaimer: true, trader: true };
   const scOk = st && st.me && st.me.tech.scouting >= 1;
   const opts = [['scout', '🔭 Розвідка', scOk, 'купіть «Розвідку»'], ['proclaimer', '🕊 Прокламентерка', cfg.proclaimer !== false, 'вимкнено'], ['trader', '💰 Торговець', cfg.trader !== false, 'вимкнено']];
   heroMenu.innerHTML = opts.map(([k, l, on, why]) => `<button class="btn s" data-h="${k}"${on ? '' : ' disabled'}>${l}${on ? '' : ' <small>(' + why + ')</small>'}</button>`).join('');
   heroMenu.querySelectorAll('[data-h]:not([disabled])').forEach(b => b.onclick = () => { heroMenu.classList.add('hidden'); pickHero(b.dataset.h); });
-  heroMenu.classList.toggle('hidden');
+  heroMenu.classList.remove('hidden');
 }
 function pickHero(k) {
   if (k === 'scout') return selectScout();
