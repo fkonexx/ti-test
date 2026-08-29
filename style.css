@@ -164,7 +164,7 @@ body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--
   #zoom .icon{width:38px;height:38px;font-size:20px;}
   #modeBtn.sidebtn{bottom:calc(62px + env(safe-area-inset-bottom));width:46px;height:46px;font-size:18px;border-radius:12px;}
   #selBtn.sidebtn{bottom:calc(114px + env(safe-area-inset-bottom));width:46px;height:46px;font-size:18px;border-radius:12px;}
-  #modeBtn.sidebtn small{font-size:8px;}
+  #modeBtn.sidebtn small,#selBtn.sidebtn small{font-size:8px;}
 
   .submenu{left:6px;right:6px;bottom:calc(58px + env(safe-area-inset-bottom));gap:5px;max-height:46vh;overflow-y:auto;}
   .btn.s{min-width:74px;padding:8px 3px;font-size:12px;}
@@ -198,6 +198,7 @@ body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--
   #zoom{bottom:calc(48px + env(safe-area-inset-bottom));gap:4px;}
   #zoom .icon{width:34px;height:34px;font-size:18px;}
   #modeBtn.sidebtn{bottom:calc(48px + env(safe-area-inset-bottom));width:42px;height:42px;font-size:16px;}
+  #selBtn.sidebtn{bottom:calc(96px + env(safe-area-inset-bottom));width:42px;height:42px;font-size:16px;}
   .submenu,#ctxbar{bottom:calc(46px + env(safe-area-inset-bottom));max-height:42vh;overflow-y:auto;}
   #techPanel{top:42px;bottom:calc(46px + env(safe-area-inset-bottom));}
   .endpanel{max-height:80vh;}
@@ -289,3 +290,60 @@ body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--
 .omb.on{background:#2c4a7a;border-color:#5a8cff;}
 .omb.no{border-color:#c0455a;color:#ffd0d8;}
 @media (max-width:430px){ #heroMenu,#orderMenu,#groupMenu{right:62px;} .omb{font-size:11px;padding:6px 3px;} }
+
+/* ---- Компактне меню «Наказ»/«Військо» ---- */
+#orderMenu,#groupMenu{gap:4px;padding:8px;max-width:280px;}
+#orderMenu .omrow,#groupMenu .omrow{gap:4px;}
+#orderMenu .omrow>span,#groupMenu .omrow>span{min-width:46px;font-size:11px;}
+#orderMenu .omb{padding:6px 4px;font-size:12px;}
+#orderMenu .omb.sm,#groupMenu .omb.sm{padding:5px 3px;font-size:11px;}
+#orderMenu .pnbtn{margin-top:6px;padding:9px;font-size:13px;}
+
+/* ================= Головне меню (v7.3) ================= */
+.menuwrap{width:100%;max-width:440px;display:flex;flex-direction:column;gap:14px;
+  background:linear-gradient(160deg,#161b26,#12161f);border:1px solid var(--line);border-radius:22px;
+  padding:22px 20px;box-shadow:0 20px 60px rgba(0,0,0,.5);text-align:center;}
+.brand .logo{margin:0;font-size:34px;letter-spacing:3px;}
+.brand .tag{margin:6px 0 0;}
+.pcard{display:flex;align-items:center;gap:14px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:16px;padding:12px 14px;text-align:left;}
+.pavatar{width:52px;height:52px;flex:0 0 auto;border-radius:14px;display:flex;align-items:center;justify-content:center;
+  font-size:26px;font-weight:800;background:linear-gradient(150deg,var(--accent),#e0a800);color:#0d1017;}
+.pinfo{flex:1;min-width:0;}
+.pname-row{display:flex;align-items:center;gap:8px;}
+.pname{font-size:18px;font-weight:800;cursor:pointer;}
+.mini{background:transparent;border:none;font-size:15px;cursor:pointer;padding:2px 4px;}
+.pstats{display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+.pstats b{color:var(--text);}
+.menu-actions{display:flex;flex-direction:column;gap:10px;}
+.joinrow{display:flex;gap:8px;}
+.joinrow input{flex:1;text-transform:uppercase;letter-spacing:2px;text-align:center;font-weight:700;}
+.joinrow .btn.big{width:auto;flex:0 0 auto;margin-top:0;padding:14px 16px;font-size:15px;white-space:nowrap;}
+.menu-sec{display:flex;gap:10px;}
+.btn.line{flex:1;background:var(--panel2);color:var(--text);border:1px solid var(--line);padding:13px;font-size:14px;}
+.btn.line:active{filter:brightness(1.2);}
+.btn.ghostsm{background:transparent;color:var(--muted);border:1px dashed var(--line);padding:11px;font-size:12.5px;font-weight:600;}
+#menuToast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;
+  background:var(--accent);color:#0d1017;font-weight:700;font-size:13px;padding:10px 16px;border-radius:12px;
+  transition:opacity .25s,transform .25s;max-width:88vw;text-align:center;z-index:30;}
+#menuToast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ---- Оверлей туторіалу ---- */
+#tutOverlay{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:rgba(8,10,15,.72);backdrop-filter:blur(3px);}
+.tutcard{width:100%;max-width:400px;background:linear-gradient(160deg,#1a2230,#141a24);border:1px solid var(--line);
+  border-radius:20px;padding:22px 20px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6);position:relative;}
+.tutstep{font-size:12px;color:var(--accent);font-weight:800;letter-spacing:1px;margin-bottom:6px;}
+.tutcard h2{margin:4px 0 10px;font-size:22px;}
+.tutcard p{color:var(--muted);font-size:14.5px;line-height:1.65;margin:0 0 18px;}
+.tutbtns{display:flex;gap:10px;}
+.tutbtns .btn.big{margin-top:0;}
+.tutbtns .btn.line{background:var(--panel2);color:var(--text);border:1px solid var(--line);flex:0 0 auto;padding:16px 18px;}
+.tutskip{position:absolute;top:12px;right:14px;background:transparent;border:none;color:var(--muted);font-size:12px;cursor:pointer;}
+
+@media (max-width:430px){
+  .menuwrap{padding:18px 14px;gap:12px;border-radius:18px;}
+  .brand .logo{font-size:28px;}
+  .pavatar{width:46px;height:46px;font-size:22px;}
+  .tutcard h2{font-size:20px;} .tutcard p{font-size:13.5px;}
+}

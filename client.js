@@ -3,6 +3,11 @@
 // ============================================================
 const socket = io();
 const me = { index: -1, color: null, host: false, id: null, debug: false };
+let gameKind = 'multi';
+const PKEY = 'fe_profile';
+function loadProfile() { try { const p = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (p && typeof p === 'object') return Object.assign({ name: '', games: 0, wins: 0, losses: 0 }, p); } catch (e) {} return { name: '', games: 0, wins: 0, losses: 0 }; }
+function saveProfile() { try { localStorage.setItem(PKEY, JSON.stringify(profile)); } catch (e) {} }
+let profile = loadProfile();
 let W = 130, H = 130, biomes = null, st = null, spawns = null;
 let CELL = 26, camX = 0, camY = 0, camInit = false;
 let canvas, ctx, DPR = 1;
@@ -56,8 +61,14 @@ let el = {}, peaceEl = null;
 window.addEventListener('DOMContentLoaded', () => {
   const $ = id => document.getElementById(id);
   el = { menu: $('menu'), lobby: $('lobby'), game: $('game'), name: $('nameInput'), code: $('codeInput'), roomCode: $('roomCode'), playerList: $('playerList'), startBtn: $('startBtn'), lobbyHint: $('lobbyHint'), res: $('res'), banner: $('banner'), tokens: $('tokTop'), unitMenu: $('unitMenu'), buildMenu: $('buildMenu'), techPanel: $('techPanel'), techList: $('techList'), overlay: $('overlay'), ctxbar: $('ctxbar') };
-  $('createBtn').onclick = once(() => socket.emit('createRoom', { name: el.name.value }));
-  $('joinBtn').onclick = once(() => { const c = el.code.value.trim().toUpperCase(); if (c) socket.emit('joinRoom', { code: c, name: el.name.value }); });
+  renderProfile();
+  $('createBtn').onclick = once(() => { const n = ensureName(); if (n) socket.emit('createRoom', { name: n }); });
+  $('joinBtn').onclick = once(() => { const cd = el.code.value.trim().toUpperCase(); if (!cd) { banner2('Введи код кімнати'); return; } const n = ensureName(); if (n) socket.emit('joinRoom', { code: cd, name: n }); });
+  { const tb = $('testBtn'); if (tb) tb.onclick = once(() => socket.emit('enterTest')); }
+  { const tu = $('tutorialBtn'); if (tu) tu.onclick = once(() => socket.emit('startTutorial', { name: profile.name || 'Ти' })); }
+  { const en = $('editNameBtn'); if (en) en.onclick = () => editName(); }
+  { const pn = $('pName'); if (pn) pn.onclick = () => editName(); }
+  { const fb = $('fsBtn'); if (fb) fb.onclick = () => goFullscreen(); }
   el.startBtn.onclick = () => { if (me.debug) socket.emit('startGame'); else socket.emit('setReady'); };
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
@@ -111,10 +122,51 @@ socket.on('lobby', d => {
   else { el.startBtn.textContent = myReady ? 'Скасувати готовність' : 'Готово'; el.startBtn.classList.toggle('ghost', myReady); el.lobbyHint.textContent = `Готові: ${readyN}/${d.players.length}` + (enough ? ' — гра почнеться, коли всі натиснуть «Готово»' : ' — потрібно мінімум 2 гравці'); }
 });
 socket.on('errorMsg', m => alert(m));
-socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); show('game'); resize(); ensurePeaceEl(); ensurePanels(); ensureHudExtras(); startPing(); if (me.debug) createDbgBar(); banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
+socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); gameKind = d.tutorial ? 'tutorial' : (me.debug ? 'test' : 'multi'); show('game'); resize(); ensurePeaceEl(); ensurePanels(); ensureHudExtras(); startPing(); if (me.debug) createDbgBar(); if (d.tutorial) { showTutorial(); banner('🎓 Тренування — знищ ворожу гільдію'); } else banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
 socket.on('state', s => onState(s));
 socket.on('gameOver', d => showEnd(d));
 
+function renderProfile() {
+  const nm = profile.name || '';
+  const pn = document.getElementById('pName'); if (pn) pn.textContent = nm || 'Новий гравець';
+  const av = document.getElementById('pAvatar'); if (av) av.textContent = nm ? nm[0].toUpperCase() : '🛡️';
+  const wr = profile.games ? Math.round(profile.wins / profile.games * 100) : 0;
+  const ps = document.getElementById('pStats'); if (ps) ps.innerHTML = `<span>🎮 <b>${profile.games}</b></span><span>🏆 <b>${profile.wins}</b></span><span>💀 <b>${profile.losses}</b></span><span>📈 <b>${wr}%</b></span>`;
+  if (el && el.name) el.name.value = nm;
+}
+function editName() { const v = prompt("Твоє ім'я (до 16 символів):", profile.name || ''); if (v !== null) { profile.name = v.trim().slice(0, 16); saveProfile(); renderProfile(); } }
+function ensureName() { if (!profile.name) { editName(); } return profile.name || ''; }
+function banner2(t) { let e = document.getElementById('menuToast'); if (!e) { e = document.createElement('div'); e.id = 'menuToast'; document.getElementById('menu').appendChild(e); } e.textContent = t; e.classList.add('show'); clearTimeout(banner2._t); banner2._t = setTimeout(() => e.classList.remove('show'), 2600); }
+function goFullscreen() {
+  const d = document.documentElement;
+  const req = d.requestFullscreen || d.webkitRequestFullscreen || d.msRequestFullscreen;
+  if (req) { try { const p = req.call(d); if (p && p.catch) p.catch(() => {}); } catch (e) {} banner2('Порада для iPhone: «Поділитися» → «На початковий екран»'); }
+  else { banner2('iPhone: «Поділитися» → «На початковий екран», запусти з іконки'); }
+}
+function showTutorial() {
+  const ov = document.getElementById('tutOverlay'); if (!ov) return;
+  const steps = [
+    ['🎓 Тренування', 'Це безпечний режим. Десь на мапі — «Тренувальна база» суперника, яку можна знищити. Тебе тут ніхто не атакує.'],
+    ['🗺 Керування', '«Виділення» — обведи воїнів пальцем; коли вимкнено — палець рухає мапу. + / − масштаб, «Карта» показує всю мапу.'],
+    ['📦 Ресурси', 'Зверху: 🌲 дерево, ⛏ камінь, 🍞 їжа, 💰 золото, 🔧 жетони. Їх дають збирачі та будівлі — витрачай на розвиток.'],
+    ['🏗 Будівлі', '«Будувати»: казарма (армія), ферма/копальня (ресурси), стіни й вежі (захист). Будуй у зоні своєї гільдії.'],
+    ['👥 Армія', '«Армія» — наймай воїнів у казармі: ближні, лучники, маги, облога. Різні типи сильні по-різному.'],
+    ['🎯 Наказ', '«Наказ» → Атака чи Захист, кому (Всі / Група), тоді тап по точці. «Військо» — зберігай групи 1–4.'],
+    ['🕊 Герої', '«Герої»: розвідка, прокламентерка (пропонує мир) і торговець (обмін ресурсами) біля ворожої гільдії.'],
+    ['🏁 Мета', 'Перечекай короткий мир, збери армію та знищ ворожу гільдію. Успіхів, полководцю!'],
+  ];
+  let i = 0;
+  function render() {
+    const [t, b] = steps[i];
+    ov.innerHTML = `<div class="tutcard"><div class="tutstep">${i + 1} / ${steps.length}</div><h2>${t}</h2><p>${b}</p>`
+      + `<div class="tutbtns">${i > 0 ? '<button class="btn line" data-prev>Назад</button>' : ''}<button class="btn big" data-next>${i < steps.length - 1 ? 'Далі ▶' : 'Почати ▶'}</button></div>`
+      + `<button class="tutskip" data-skip>Пропустити</button></div>`;
+    ov.querySelector('[data-next]').onclick = () => { if (i < steps.length - 1) { i++; render(); } else ov.classList.add('hidden'); };
+    const pv = ov.querySelector('[data-prev]'); if (pv) pv.onclick = () => { i--; render(); };
+    ov.querySelector('[data-skip]').onclick = () => ov.classList.add('hidden');
+  }
+  render(); ov.classList.remove('hidden');
+}
 function show(name) { el.menu.classList.add('hidden'); el.lobby.classList.add('hidden'); el.game.classList.add('hidden'); el[name].classList.remove('hidden'); }
 function clearSel() { sel.units.clear(); sel.building = null; sel.scout = false; sel.diplo = null; buildMode = null; attackMode = false; buildable = null; modes(); refreshCtx(); closePanels && closePanels(); }
 function resetFog() { if (gridArr) { gridArr.fill(-2); seen.fill(0); mem.fill(-1); } }
@@ -626,7 +678,8 @@ function updateDbg() { const b = document.getElementById('dbgSwitch'); if (!b) r
 
 function showEnd(d) {
   el.overlay.classList.remove('hidden');
-  musicStopAll();   // музика замовкає на екрані кінця бою
+  musicStopAll();
+  if (gameKind === 'multi' && me.index >= 0) { profile.games++; if (d.winner === me.index) profile.wins++; else profile.losses++; saveProfile(); renderProfile(); }   // музика замовкає на екрані кінця бою
   const rows = [...d.stats].sort((a, b) => (b.territory + b.kills * 6 + b.razed * 20 + b.built * 3 + (b.alive ? 300 : 0)) - (a.territory + a.kills * 6 + a.razed * 20 + a.built * 3 + (a.alive ? 300 : 0)));
   const winTxt = d.winner === -1 ? 'Нічия' : `Перемогла <span style="color:${COL[IDX[d.winner]]}">${CNAME[IDX[d.winner]]}</span> імперія`;
   let html = `<h2 class="endtitle">🏆 ${winTxt}</h2><div class="statwrap">`; let place = 0;
@@ -769,7 +822,7 @@ function renderOrderMenu() {
     + `<div class="omrow"><span>Кому:</span>` + grp.map(([k, l]) => { const cnt = k === 'all' ? armyIds().length : groups[k].size; return `<button class="omb sm ${String(orderTarget) === String(k) ? 'on' : ''}" data-t="${k}">${l}${k === 'all' ? '' : ' (' + cnt + ')'}</button>`; }).join('') + `</div>`
     + `<button class="pnbtn ok" data-go>▶ Обрати точку</button>`;
   orderMenu.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { orderMode = b.dataset.m; renderOrderMenu(); });
-  orderMenu.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { orderTarget = b.dataset.t === 'all' ? 'all' : (+b.dataset.t); renderOrderMenu(); });
+  orderMenu.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { orderTarget = b.dataset.t === 'all' ? 'all' : (+b.dataset.t); selectOrderUnits(); renderOrderMenu(); });
   orderMenu.querySelector('[data-go]').onclick = () => {
     const n = orderTarget === 'all' ? armyIds().length : (pruneGroups(), groups[orderTarget].size);
     if (!n) { banner(orderTarget === 'all' ? 'Немає армії' : 'Група ' + orderTarget + ' порожня'); return; }
@@ -777,6 +830,7 @@ function renderOrderMenu() {
     banner((orderMode === 'defense' ? '🛡 Захист' : '⚔ Атака') + ': тапни точку' + (orderTarget === 'all' ? '' : ' · Група ' + orderTarget));
   };
 }
+function selectOrderUnits() { pruneGroups(); const ids = orderTarget === 'all' ? armyIds() : [...groups[orderTarget]]; sel.units = new Set(ids); sel.building = null; sel.scout = false; sel.diplo = null; sfx('select'); refreshCtx(); }
 function sendOrder(col, row) {
   let ids; if (orderTarget === 'all') ids = armyIds(); else { pruneGroups(); ids = [...groups[orderTarget]]; }
   if (!ids.length) { banner('Немає юнітів для наказу'); return; }

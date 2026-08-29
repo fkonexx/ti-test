@@ -511,6 +511,17 @@ function startDebugGame(room) {
   socket.emit('gameStarted', { W, H, biomes: room.state.biomes, spawns: room.state.spawns, debug: true });
   room.loop = setInterval(() => step(room), TICK_MS); broadcastLobby(room);
 }
+function startTutorial(socket, name) {
+  leaveCurrentRoom(socket);
+  const code = newRoomCode(); const room = { code, host: socket.id, started: false, players: [], state: null, loop: null, tutorial: true, cfg: { proclaimer: true, trader: true } }; rooms[code] = room;
+  room.players.push({ id: socket.id, name: (name || 'Ти').slice(0, 16), index: 0, color: COLORS[0], connected: true });
+  room.players.push({ id: 'BOT_' + code, name: 'Тренувальна база', index: 1, color: COLORS[1], connected: false });
+  socket.data.room = code; socket.data.index = 0; socket.data.debug = false; socket.join(code);
+  initGame(room); room.started = true; room.state.peace = 20;   // короткий мир на розвиток
+  socket.emit('joined', { code, index: 0, color: COLORS[0], host: true });
+  socket.emit('gameStarted', { W, H, biomes: room.state.biomes, spawns: room.state.spawns, tutorial: true });
+  room.loop = setInterval(() => step(room), TICK_MS);
+}
 
 function inZone(s, o, cx, cy) {
   const me = playerOf(s, o);
@@ -530,6 +541,8 @@ function buildPlacement(s, o, type, cx, cy) {
 }
 
 io.on('connection', (socket) => {
+  socket.on('enterTest', () => startDebug(socket));
+  socket.on('startTutorial', ({ name } = {}) => startTutorial(socket, name));
   socket.on('createRoom', ({ name } = {}) => {
     leaveCurrentRoom(socket);
     const code = newRoomCode(); const room = { code, host: socket.id, started: false, players: [], state: null, loop: null, cfg: { proclaimer: true, trader: true } }; rooms[code] = room;
