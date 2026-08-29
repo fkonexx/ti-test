@@ -492,7 +492,7 @@ function tap(px, py) {
   const col = Math.floor((px - camX) / CELL), row = Math.floor((py - camY) / CELL);
   if (col < 0 || col >= W || row < 0 || row >= H) return;
   if (buildMode) { const reason = buildBlockReason(col, row); if (reason) { banner('🚫 ' + reason); sfx('deny'); return; } socket.emit('command', { type: 'build', build: buildMode, cx: col, cy: row }); sfx('build'); if (buildMode !== 'wall' && buildMode !== 'landmine') { buildMode = null; buildable = null; modes(); } return; }
-  if (attackMode) { sendOrder(col, row); attackMode = false; modes(); return; }
+  if (attackMode) { sendOrder(col, row); return; }   // режим наказу лишається активним — вимк. лише кліком по «Наказ»
   // свій воїн?
   const uids = st.units.filter(u => u.o === me.index && !u.s && Math.round(u.x) === col && Math.round(u.y) === row).map(u => u.i);
   if (uids.length) { sel.units = new Set(uids); sel.building = null; sel.scout = false; sfx('select'); refreshCtx(); return; }
