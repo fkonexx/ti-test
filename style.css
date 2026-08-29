@@ -369,3 +369,7 @@ button.pcard:active{filter:brightness(1.12);}
 .prow{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-radius:10px;font-size:14px;}
 .prow:nth-child(odd){background:var(--panel2);}
 .prow b{font-size:16px;color:var(--accent);}
+
+/* v7.3.2: лоббі теж скролиться */
+#lobby.screen{flex-direction:column;justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+#lobby .panel{margin:auto;}

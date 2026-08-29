@@ -107,6 +107,14 @@
       <button id="techBtn"   class="btn ctrl"><i>&#9881;</i>Розвиток</button>
     </div>
 
+    <div id="tutOverlay" class="hidden"></div>
+    <div id="overlay" class="hidden">
+      <div class="panel"><h2 id="overTitle">&#8212;</h2><button id="againBtn" class="btn big">Нова гра</button></div>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
     <div id="profileOverlay" class="hidden">
       <div class="profcard">
         <button class="pclose" id="profClose">&#10005;</button>
@@ -121,13 +129,5 @@
         <button id="resetStatsBtn" class="btn ghostsm">Скинути статистику</button>
       </div>
     </div>
-    <div id="tutOverlay" class="hidden"></div>
-    <div id="overlay" class="hidden">
-      <div class="panel"><h2 id="overTitle">&#8212;</h2><button id="againBtn" class="btn big">Нова гра</button></div>
-    </div>
-  </section>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
 </body>
 </html>
