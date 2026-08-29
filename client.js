@@ -79,7 +79,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('armyBtn').onclick = () => { attackMode = false; buildMode = null; buildable = null; toggle('unit'); modes(); };
   $('buildBtn').onclick = () => { if (buildMode) { buildMode = null; buildable = null; modes(); return; } attackMode = false; toggle('build'); modes(); };
   $('scoutBtn').onclick = () => selectHeroes();
-  $('techBtn').onclick = () => { attackMode = false; buildMode = null; buildable = null; modes(); closeMenus(); el.techPanel.classList.toggle('hidden'); techSig = ''; renderTech(); };
+  $('techBtn').onclick = () => { const open = !el.techPanel.classList.contains('hidden'); attackMode = false; buildMode = null; buildable = null; modes(); closeMenus(); closePanels(); if (!open) { el.techPanel.classList.remove('hidden'); techSig = ''; renderTech(); } };
   $('techClose').onclick = () => el.techPanel.classList.add('hidden');
   const sb = $('selBtn'); if (sb) sb.onclick = () => { selectMode = !selectMode; sb.classList.toggle('on', selectMode); banner(selectMode ? 'Режим виділення: обведи воїнів пальцем' : 'Режим карти: палець рухає карту'); };
   const mb = $('modeBtn'); if (mb) mb.onclick = () => fitWholeMap();
@@ -385,18 +385,26 @@ let actx = null;
 function sfxInit() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (actx && actx.state === 'suspended') actx.resume(); updateMusic(); }
 // ===== Музика з /music, синхронізована з часом гри =====
 // peace_music: 0:00–1:53 (затухає) · horn: 1:53–2:00 · war_music: 2:00+ циклічно
-let musicOn = true, musicEls = null, musicPhase = null;
+let musicOn = true, musicEls = null, musicPhase = null, warTracks = null, warIdx = 0;
 const MUSIC_VOL = 0.55, MUS_PEACE_END = 113, MUS_WAR_START = 120;
+function playWar() {
+  if (!warTracks) return;
+  if (musicEls) for (const k in musicEls) { try { musicEls[k].pause(); } catch (e) {} }
+  warTracks.forEach((a, i) => { if (i !== warIdx) { try { a.pause(); } catch (e) {} } });
+  const a = warTracks[warIdx]; try { a.volume = MUSIC_VOL; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+function warNext() { if (musicPhase !== 'war' || !warTracks) return; warIdx = (warIdx + 1) % warTracks.length; playWar(); }
 function musicEnsure() {
   if (musicEls) return true;
   try {
-    musicEls = { peace: new Audio('music/peace_music.mp3'), horn: new Audio('music/horn.mp3'), war: new Audio('music/war_music.mp3'), truce: new Audio('music/truce.mp3') };
-    musicEls.war.loop = true; musicEls.truce.loop = true;
+    musicEls = { peace: new Audio('music/peace_music.mp3'), horn: new Audio('music/horn.mp3'), truce: new Audio('music/truce.mp3') };
+    musicEls.truce.loop = true;
     for (const k in musicEls) { musicEls[k].preload = 'auto'; musicEls[k].volume = MUSIC_VOL; musicEls[k].addEventListener('error', () => {}); }
+    warTracks = ['music/war_music.mp3', 'music/war_music_2.mp3', 'music/war_music_3.mp3'].map(src => { const a = new Audio(src); a.preload = 'auto'; a.volume = MUSIC_VOL; a.addEventListener('ended', warNext); a.addEventListener('error', () => { setTimeout(warNext, 300); }); return a; });
   } catch (e) { musicEls = null; return false; }
   return true;
 }
-function musicStopAll() { if (!musicEls) return; for (const k in musicEls) { try { musicEls[k].pause(); } catch (e) {} } musicPhase = null; }
+function musicStopAll() { if (musicEls) for (const k in musicEls) { try { musicEls[k].pause(); } catch (e) {} } if (warTracks) warTracks.forEach(a => { try { a.pause(); } catch (e) {} }); musicPhase = null; }
 function musicPlay(k, at) { const a = musicEls[k]; try { if (typeof at === 'number' && isFinite(at) && Math.abs((a.currentTime || 0) - at) > 1.5) a.currentTime = Math.max(0, at); const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
 function updateMusic() {
   if (!musicOn || muted || !st || st.t == null) { musicStopAll(); return; }
@@ -405,13 +413,15 @@ function updateMusic() {
   const phase = (st.me && st.me.truce) ? 'truce' : t < MUS_PEACE_END ? 'peace' : t < MUS_WAR_START ? 'horn' : 'war';
   if (phase !== musicPhase) {
     for (const k in musicEls) if (k !== phase) { try { musicEls[k].pause(); } catch (e) {} }
+    if (phase !== 'war' && warTracks) warTracks.forEach(a => { try { a.pause(); } catch (e) {} });
     if (phase === 'peace') musicPlay('peace', t);
     else if (phase === 'horn') musicPlay('horn', t - MUS_PEACE_END);
     else if (phase === 'truce') musicPlay('truce');
-    else musicPlay('war');
+    else playWar();
     musicPhase = phase;
   }
   if (phase === 'peace') { const ct = musicEls.peace.currentTime || 0; musicEls.peace.volume = ct < MUS_PEACE_END - 3 ? MUSIC_VOL : Math.max(0, MUSIC_VOL * (MUS_PEACE_END - ct) / 3); }
+  else if (phase === 'war') { if (warTracks[warIdx]) warTracks[warIdx].volume = MUSIC_VOL; }
   else if (musicEls[phase]) musicEls[phase].volume = MUSIC_VOL;
 }
 function tone(type, f0, f1, dur, vol) { if (muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.02); } catch (e) {} }
@@ -832,10 +842,12 @@ function openGroupMenu() {
 function renderGroupMenu() {
   pruneGroups();
   const selN = sel.units.size;
-  let h = `<div class="omrow"><span>${selN ? ('Виділено: ' + selN) : 'Групи воїнів'}</span></div>`;
-  h += `<div class="omrow"><span>Записати:</span>` + [1, 2, 3, 4].map(n => `<button class="omb sm" data-asg="${n}">${n}</button>`).join('') + `</div>`;
-  h += `<div class="omrow"><span>Обрати:</span>` + [1, 2, 3, 4].map(n => `<button class="omb sm" data-sel="${n}">${n} (${groups[n].size})</button>`).join('') + `</div>`;
-  h += `<div class="omrow"><span>Видалити:</span>` + [1, 2, 3, 4].map(n => `<button class="omb sm no" data-clr="${n}">🗑${n}</button>`).join('') + `</div>`;
+  let h = `<div class="omttl">${selN ? ('Записати виділених (' + selN + ') у групу') : 'Записати виділених у групу'}</div>`;
+  h += `<div class="omgrid omg4">` + [1, 2, 3, 4].map(n => `<button class="omb" data-asg="${n}">${n}</button>`).join('') + `</div>`;
+  h += `<div class="omttl">Обрати групу</div>`;
+  h += `<div class="omgrid omg4">` + [1, 2, 3, 4].map(n => `<button class="omb" data-sel="${n}">${n}<small>${groups[n].size}</small></button>`).join('') + `</div>`;
+  h += `<div class="omttl">Розпустити</div>`;
+  h += `<div class="omgrid omg4">` + [1, 2, 3, 4].map(n => `<button class="omb no" data-clr="${n}">🗑${n}</button>`).join('') + `</div>`;
   groupMenu.innerHTML = h;
   groupMenu.querySelectorAll('[data-asg]').forEach(b => b.onclick = () => { assignGroup(+b.dataset.asg); renderGroupMenu(); });
   groupMenu.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { selectGroupUnits(+b.dataset.sel); groupMenu.classList.add('hidden'); });
@@ -844,9 +856,10 @@ function renderGroupMenu() {
 
 function openOrderMenu() {
   ensurePanels();
+  if (attackMode) { attackMode = false; sel.units.clear(); sel.diplo = null; modes(); refreshCtx(); banner('Наказ скасовано — обери групу знову'); return; }   // ще раз «Наказ» під час наведення — скасувати
   const wasOpen = orderMenu && !orderMenu.classList.contains('hidden');
-  if (sel.diplo) { sel.units.clear(); sel.diplo = null; refreshCtx(); }   // накази не для героїв
-  closeMenus && closeMenus(); closePanels(); attackMode = false; modes();
+  if (sel.diplo) { sel.units.clear(); sel.diplo = null; refreshCtx(); }
+  closeMenus && closeMenus(); closePanels(); modes();
   if (wasOpen) return;
   renderOrderMenu(); orderMenu.classList.remove('hidden');
 }
@@ -854,14 +867,17 @@ function renderOrderMenu() {
   pruneGroups();
   const grp = [['all', 'Всі'], [1, 'Г1'], [2, 'Г2'], [3, 'Г3'], [4, 'Г4']];
   orderMenu.innerHTML =
-    `<div class="omrow"><span>Наказ:</span><button class="omb ${orderMode === 'attack' ? 'on' : ''}" data-m="attack">⚔ Атака</button><button class="omb ${orderMode === 'defense' ? 'on' : ''}" data-m="defense">🛡 Захист</button></div>`
-    + `<div class="omrow"><span>Кому:</span>` + grp.map(([k, l]) => { const cnt = k === 'all' ? armyIds().length : groups[k].size; return `<button class="omb sm ${String(orderTarget) === String(k) ? 'on' : ''}" data-t="${k}">${l}${k === 'all' ? '' : ' (' + cnt + ')'}</button>`; }).join('') + `</div>`
+    `<div class="omttl">Наказ</div>`
+    + `<div class="omgrid omg2"><button class="omb ${orderMode === 'attack' ? 'on' : ''}" data-m="attack">⚔ Атака</button><button class="omb ${orderMode === 'defense' ? 'on' : ''}" data-m="defense">🛡 Захист</button></div>`
+    + `<div class="omttl">Кому</div>`
+    + `<div class="omgrid omg5">` + grp.map(([k, l]) => { const cnt = k === 'all' ? armyIds().length : groups[k].size; return `<button class="omb sm ${String(orderTarget) === String(k) ? 'on' : ''}" data-t="${k}">${l}<small>${k === 'all' ? '' : cnt}</small></button>`; }).join('') + `</div>`
     + `<button class="pnbtn ok" data-go>▶ Обрати точку</button>`;
   orderMenu.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { orderMode = b.dataset.m; renderOrderMenu(); });
   orderMenu.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { orderTarget = b.dataset.t === 'all' ? 'all' : (+b.dataset.t); selectOrderUnits(); renderOrderMenu(); });
   orderMenu.querySelector('[data-go]').onclick = () => {
     const n = orderTarget === 'all' ? armyIds().length : (pruneGroups(), groups[orderTarget].size);
     if (!n) { banner(orderTarget === 'all' ? 'Немає армії' : 'Група ' + orderTarget + ' порожня'); return; }
+    selectOrderUnits();
     orderMenu.classList.add('hidden'); attackMode = true; modes();
     banner((orderMode === 'defense' ? '🛡 Захист' : '⚔ Атака') + ': тапни точку' + (orderTarget === 'all' ? '' : ' · Група ' + orderTarget));
   };

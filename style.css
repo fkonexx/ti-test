@@ -282,22 +282,26 @@ body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--
 #heroMenu{right:70px;justify-content:flex-start;}
 #heroMenu .btn.s{flex:0 1 auto;min-width:auto;max-width:none;padding:7px 10px;font-size:12px;}
 /* ---- Меню Наказ / Військо ---- */
-#orderMenu,#groupMenu{right:70px;flex-direction:column;align-items:stretch;gap:5px;}
-.omrow{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
-.omrow>span{font-size:12px;color:var(--muted,#9aa4b2);min-width:60px;}
-.omb{flex:1;min-width:56px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:8px 6px;font-size:12.5px;font-weight:700;}
-.omb.sm{padding:6px 4px;font-size:11px;}
+/* ---- Меню «Наказ» / «Військо» — симетричні панелі-сітки ---- */
+#orderMenu,#groupMenu{left:calc(74px + env(safe-area-inset-left));right:calc(74px + env(safe-area-inset-right));
+  bottom:calc(74px + env(safe-area-inset-bottom));flex-direction:column;align-items:stretch;gap:5px;padding:10px 12px;
+  max-height:54vh;overflow-y:auto;background:rgba(13,16,23,.94);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
+.omttl{font-size:11px;font-weight:700;color:var(--muted,#9aa4b2);text-align:left;margin:3px 2px 0;letter-spacing:.3px;}
+.omgrid{display:grid;gap:5px;}
+.omg2{grid-template-columns:repeat(2,1fr);}
+.omg4{grid-template-columns:repeat(4,1fr);}
+.omg5{grid-template-columns:repeat(5,1fr);}
+.omb{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:9px 4px;
+  font-size:13px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.1;min-width:0;}
+.omb small{font-size:9px;opacity:.7;font-weight:600;}
 .omb.on{background:#2c4a7a;border-color:#5a8cff;}
 .omb.no{border-color:#c0455a;color:#ffd0d8;}
-@media (max-width:430px){ #heroMenu,#orderMenu,#groupMenu{right:62px;} .omb{font-size:11px;padding:6px 3px;} }
+.omb.sm{padding:8px 3px;font-size:12px;}
+#orderMenu .pnbtn,#groupMenu .pnbtn{margin-top:6px;padding:11px;font-size:14px;}
+@media (max-width:430px){ #orderMenu,#groupMenu{left:calc(62px + env(safe-area-inset-left));right:calc(62px + env(safe-area-inset-right));padding:8px 10px;} .omb{font-size:12px;padding:7px 3px;} }
 
 /* ---- Компактне меню «Наказ»/«Військо» ---- */
-#orderMenu,#groupMenu{gap:4px;padding:8px;max-width:280px;}
-#orderMenu .omrow,#groupMenu .omrow{gap:4px;}
-#orderMenu .omrow>span,#groupMenu .omrow>span{min-width:46px;font-size:11px;}
-#orderMenu .omb{padding:6px 4px;font-size:12px;}
-#orderMenu .omb.sm,#groupMenu .omb.sm{padding:5px 3px;font-size:11px;}
-#orderMenu .pnbtn{margin-top:6px;padding:9px;font-size:13px;}
+
 
 /* ================= Головне меню (v7.3) ================= */
 .menuwrap{width:100%;max-width:440px;display:flex;flex-direction:column;gap:14px;
