@@ -317,8 +317,14 @@ function step(room) {
     }
     if (!attacked) {
       let dest = null;
-      if (u.hasCmd) { const d = dist(u.x, u.y, u.mx, u.my); if (d <= 0.15) { u.x = u.mx; u.y = u.my; u.hasCmd = false; } else dest = [u.mx, u.my]; }
-      if (!dest && tgt && tgt.dist <= def.aggro && tgt.dist > def.range + 0.1) dest = [tgt.x, tgt.y];
+      if (u.hasCmd) {
+        if (u.cmdBx != null && def.range > 1.6) {   // дальнобійний з наказом по будівлі — тримати дистанцію
+          const stillB = s.buildings.some(b => b.owner !== u.owner && b.hp > 0 && Math.abs(b.cx - u.cmdBx) < 0.6 && Math.abs(b.cy - u.cmdBy) < 0.6);
+          if (!stillB) { u.cmdBx = null; u.cmdBy = null; const d = dist(u.x, u.y, u.mx, u.my); if (d <= 0.15) u.hasCmd = false; else dest = [u.mx, u.my]; }
+          else { const db = dist(u.x, u.y, u.cmdBx, u.cmdBy); if (db <= def.range - 0.3) u.hasCmd = false; else dest = [u.cmdBx, u.cmdBy]; }
+        } else { const d = dist(u.x, u.y, u.mx, u.my); if (d <= 0.15) { u.x = u.mx; u.y = u.my; u.hasCmd = false; } else dest = [u.mx, u.my]; }
+      }
+      if (!dest && !u.hold && tgt && tgt.dist <= def.aggro && tgt.dist > def.range + 0.1) dest = [tgt.x, tgt.y];   // захист (hold) — не переслідувати
       if (dest) moveUnit(s, u, dest, def.speed * speedMul, wallCell);
     }
   }
@@ -576,7 +582,10 @@ io.on('connection', (socket) => {
 
     if (cmd.type === 'move') {
       const x = clamp(cmd.x, 0, W - 1), y = clamp(cmd.y, 0, H - 1), ids = new Set(cmd.ids || []);
-      for (const u of s.units) { if (u.owner !== o || !ids.has(u.id)) continue; if (peace && !u.scout && !u.diplo) continue; u.mx = x; u.my = y; u.hasCmd = true; }
+      const hold = !!cmd.hold;
+      let bx = null, by = null;
+      for (const b of s.buildings) { if (b.owner === o || b.hp <= 0 || b.type === 'landmine') continue; if (dist(b.cx, b.cy, x, y) <= 1.6) { bx = b.cx; by = b.cy; break; } }
+      for (const u of s.units) { if (u.owner !== o || !ids.has(u.id)) continue; if (peace && !u.scout && !u.diplo) continue; u.mx = x; u.my = y; u.hasCmd = true; u.hold = hold; u.cmdBx = bx; u.cmdBy = by; }
     }
     else if (cmd.type === 'tech') {
       const k = cmd.branch; if (!TECH_KEYS.includes(k)) return;

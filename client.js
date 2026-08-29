@@ -61,7 +61,8 @@ window.addEventListener('DOMContentLoaded', () => {
   el.startBtn.onclick = () => { if (me.debug) socket.emit('startGame'); else socket.emit('setReady'); };
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
-  $('attackBtn').onclick = () => { if (sel.diplo) { sel.units.clear(); sel.diplo = null; refreshCtx(); } if (attackMode) { attackMode = false; modes(); return; } buildMode = null; buildable = null; closeMenus(); selectAll(); if (sel.units.size === 0) { banner('Немає армії для збору'); modes(); return; } attackMode = true; modes(); };
+  $('attackBtn').onclick = () => openOrderMenu();
+  { const gb = $('groupBtn'); if (gb) gb.onclick = () => openGroupMenu(); }
   $('armyBtn').onclick = () => { attackMode = false; buildMode = null; buildable = null; toggle('unit'); modes(); };
   $('buildBtn').onclick = () => { if (buildMode) { buildMode = null; buildable = null; modes(); return; } attackMode = false; toggle('build'); modes(); };
   $('scoutBtn').onclick = () => selectHeroes();
@@ -149,7 +150,7 @@ function onState(s) {
   updateRes(); updateArmyBtn(); updateScoutBtn(); updatePeace(); refreshCtx(); renderMarket(); renderArsenal();
   { const hi = document.getElementById('hudinfo'); if (hi) hi.textContent = '⏱ ' + fmtTime(st.t) + '  ·  📶 ' + ping + 'мс'; }
   updateMusic();
-  updateTruce(); renderKillfeed();
+  updateTruce(); renderKillfeed(); pruneGroups();
   { const inc = st.units.find(u => u.o !== me.index && u.nc && u.prop && u.prop.to === me.index); const key = inc ? (inc.i + ':' + inc.prop.k) : null; if (key && key !== lastIncoming) { lastIncoming = key; banner('📜 Вам пропонують ' + (inc.prop.k === 'truce' ? 'мир' : 'обмін') + ' — тапніть по ' + (inc.prop.k === 'truce' ? 'прокламентерці' : 'торговцю') + ' ворога'); } if (!key) lastIncoming = null; }
   if (el.techPanel && !el.techPanel.classList.contains('hidden')) renderTech();
 }
@@ -209,7 +210,7 @@ function sendMove(col, row) { if (!sel.units.size) return; if (st.peace > 0 && !
 
 function toggle(which) { const u = which === 'unit'; const su = u && el.unitMenu.classList.contains('hidden'); const sb = !u && el.buildMenu.classList.contains('hidden'); closeMenus(); if (su) { refreshUnitMenu(); el.unitMenu.classList.remove('hidden'); } if (sb) { refreshBuildMenu(); el.buildMenu.classList.remove('hidden'); } }
 function closeMenus() { el.unitMenu.classList.add('hidden'); el.buildMenu.classList.add('hidden'); el.techPanel && el.techPanel.classList.add('hidden'); }
-function closePanels() { if (marketPanel) marketPanel.classList.add('hidden'); if (arsenalPanel) arsenalPanel.classList.add('hidden'); if (heroMenu) heroMenu.classList.add('hidden'); if (trucePanel) trucePanel.classList.add('hidden'); if (tradePanel) tradePanel.classList.add('hidden'); }
+function closePanels() { if (marketPanel) marketPanel.classList.add('hidden'); if (arsenalPanel) arsenalPanel.classList.add('hidden'); if (heroMenu) heroMenu.classList.add('hidden'); if (trucePanel) trucePanel.classList.add('hidden'); if (tradePanel) tradePanel.classList.add('hidden'); if (orderMenu) orderMenu.classList.add('hidden'); if (groupMenu) groupMenu.classList.add('hidden'); }
 function costStr(c) { const p = []; if (c.wood) p.push(curIcon('wood','🌲') + c.wood); if (c.stone) p.push(curIcon('stone','⛏') + c.stone); if (c.food) p.push(curIcon('food','🍞') + c.food); if (c.gold) p.push(curIcon('gold','💰') + c.gold); return p.join(' '); }
 function canAfford(c) { const r = st && st.me ? st.me.res : {}; return (r.wood || 0) >= (c.wood || 0) && (r.stone || 0) >= (c.stone || 0) && (r.food || 0) >= (c.food || 0) && (r.gold || 0) >= (c.gold || 0); }
 function refreshUnitMenu() {
@@ -242,8 +243,7 @@ function refreshBuildMenu() {
 function modes() {
   document.getElementById('attackBtn').classList.toggle('on', attackMode);
   document.getElementById('buildBtn').classList.toggle('on', !!buildMode);
-  if (attackMode) banner('Тапни точку — уся армія збереться там');
-  else if (buildMode) banner('Тапни підсвічену клітинку, щоб побудувати «' + BNAME[buildMode] + '»');
+  if (buildMode) banner('Тапни підсвічену клітинку, щоб побудувати «' + BNAME[buildMode] + '»');
   else hideBanner();
 }
 function computeBuildable() {
@@ -387,7 +387,7 @@ function tap(px, py) {
   const col = Math.floor((px - camX) / CELL), row = Math.floor((py - camY) / CELL);
   if (col < 0 || col >= W || row < 0 || row >= H) return;
   if (buildMode) { const reason = buildBlockReason(col, row); if (reason) { banner('🚫 ' + reason); sfx('deny'); return; } socket.emit('command', { type: 'build', build: buildMode, cx: col, cy: row }); sfx('build'); if (buildMode !== 'wall' && buildMode !== 'landmine') { buildMode = null; buildable = null; modes(); } return; }
-  if (attackMode) { sendMove(col, row); attackMode = false; modes(); return; }
+  if (attackMode) { sendOrder(col, row); attackMode = false; modes(); return; }
   // свій воїн?
   const uids = st.units.filter(u => u.o === me.index && !u.s && Math.round(u.x) === col && Math.round(u.y) === row).map(u => u.i);
   if (uids.length) { sel.units = new Set(uids); sel.building = null; sel.scout = false; sfx('select'); refreshCtx(); return; }
@@ -648,6 +648,8 @@ const RESUA = { wood: 'Дерево', stone: 'Камінь', food: 'Їжа', gol
 let marketPanel = null, arsenalPanel = null, marketAmt = [100, 100];
 let heroMenu = null, trucePanel = null, tradePanel = null, respondPanel = null;
 let killfeedEl = null, truceEl = null, lastIncoming = null;
+let orderMenu = null, groupMenu = null, orderMode = 'attack', orderTarget = 'all';
+const groups = { 1: new Set(), 2: new Set(), 3: new Set(), 4: new Set() };
 let tradeState = { give: 'wood', gamt: 100, want: 'stone', wamt: 100 };
 
 // ================= Дипломатія (герої / мир / обмін) =================
@@ -723,6 +725,65 @@ function openRespond(u) {
   respondPanel.querySelector('[data-no]').onclick = () => { socket.emit('command', { type: cmd, accept: false }); respondPanel.classList.add('hidden'); banner('❌ Пропозицію відхилено'); };
   respondPanel.classList.remove('hidden');
 }
+
+// ================= Групи та накази =================
+function pruneGroups() { if (!st) return; const alive = new Set(st.units.map(u => u.i)); for (const n of [1, 2, 3, 4]) for (const id of [...groups[n]]) if (!alive.has(id)) groups[n].delete(id); }
+function armyIds() { return myUnits().filter(u => !u.nc).map(u => u.i); }   // вся армія (без дипломатів/розвідки)
+function assignGroup(n) { if (!sel.units.size) { banner('Спершу виділи воїнів'); return; } for (const id of sel.units) { for (const g of [1, 2, 3, 4]) groups[g].delete(id); groups[n].add(id); } banner('Група ' + n + ': ' + groups[n].size + ' юнітів'); sfx('select'); }
+function selectGroupUnits(n) { pruneGroups(); if (!groups[n].size) { banner('Група ' + n + ' порожня'); return; } sel.units = new Set(groups[n]); sel.building = null; sel.scout = false; sel.diplo = null; sfx('select'); refreshCtx(); banner('Обрано групу ' + n + ' (' + groups[n].size + ')'); }
+function clearGroup(n) { groups[n].clear(); banner('Групу ' + n + ' розпущено'); }
+
+function openGroupMenu() {
+  ensurePanels();
+  const wasOpen = groupMenu && !groupMenu.classList.contains('hidden');
+  closeMenus && closeMenus(); closePanels(); attackMode = false; modes();
+  if (wasOpen) return;
+  renderGroupMenu(); groupMenu.classList.remove('hidden');
+}
+function renderGroupMenu() {
+  pruneGroups();
+  const selN = sel.units.size;
+  let h = `<div class="omrow"><span>${selN ? ('Виділено: ' + selN) : 'Групи воїнів'}</span></div>`;
+  h += `<div class="omrow"><span>Записати:</span>` + [1, 2, 3, 4].map(n => `<button class="omb sm" data-asg="${n}">${n}</button>`).join('') + `</div>`;
+  h += `<div class="omrow"><span>Обрати:</span>` + [1, 2, 3, 4].map(n => `<button class="omb sm" data-sel="${n}">${n} (${groups[n].size})</button>`).join('') + `</div>`;
+  h += `<div class="omrow"><span>Видалити:</span>` + [1, 2, 3, 4].map(n => `<button class="omb sm no" data-clr="${n}">🗑${n}</button>`).join('') + `</div>`;
+  groupMenu.innerHTML = h;
+  groupMenu.querySelectorAll('[data-asg]').forEach(b => b.onclick = () => { assignGroup(+b.dataset.asg); renderGroupMenu(); });
+  groupMenu.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { selectGroupUnits(+b.dataset.sel); groupMenu.classList.add('hidden'); });
+  groupMenu.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => { clearGroup(+b.dataset.clr); renderGroupMenu(); });
+}
+
+function openOrderMenu() {
+  ensurePanels();
+  const wasOpen = orderMenu && !orderMenu.classList.contains('hidden');
+  if (sel.diplo) { sel.units.clear(); sel.diplo = null; refreshCtx(); }   // накази не для героїв
+  closeMenus && closeMenus(); closePanels(); attackMode = false; modes();
+  if (wasOpen) return;
+  renderOrderMenu(); orderMenu.classList.remove('hidden');
+}
+function renderOrderMenu() {
+  pruneGroups();
+  const grp = [['all', 'Всі'], [1, 'Г1'], [2, 'Г2'], [3, 'Г3'], [4, 'Г4']];
+  orderMenu.innerHTML =
+    `<div class="omrow"><span>Наказ:</span><button class="omb ${orderMode === 'attack' ? 'on' : ''}" data-m="attack">⚔ Атака</button><button class="omb ${orderMode === 'defense' ? 'on' : ''}" data-m="defense">🛡 Захист</button></div>`
+    + `<div class="omrow"><span>Кому:</span>` + grp.map(([k, l]) => { const cnt = k === 'all' ? armyIds().length : groups[k].size; return `<button class="omb sm ${String(orderTarget) === String(k) ? 'on' : ''}" data-t="${k}">${l}${k === 'all' ? '' : ' (' + cnt + ')'}</button>`; }).join('') + `</div>`
+    + `<button class="pnbtn ok" data-go>▶ Обрати точку</button>`;
+  orderMenu.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { orderMode = b.dataset.m; renderOrderMenu(); });
+  orderMenu.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { orderTarget = b.dataset.t === 'all' ? 'all' : (+b.dataset.t); renderOrderMenu(); });
+  orderMenu.querySelector('[data-go]').onclick = () => {
+    const n = orderTarget === 'all' ? armyIds().length : (pruneGroups(), groups[orderTarget].size);
+    if (!n) { banner(orderTarget === 'all' ? 'Немає армії' : 'Група ' + orderTarget + ' порожня'); return; }
+    orderMenu.classList.add('hidden'); attackMode = true; modes();
+    banner((orderMode === 'defense' ? '🛡 Захист' : '⚔ Атака') + ': тапни точку' + (orderTarget === 'all' ? '' : ' · Група ' + orderTarget));
+  };
+}
+function sendOrder(col, row) {
+  let ids; if (orderTarget === 'all') ids = armyIds(); else { pruneGroups(); ids = [...groups[orderTarget]]; }
+  if (!ids.length) { banner('Немає юнітів для наказу'); return; }
+  if (st.peace > 0) { banner('🕊 Мир: армію ще не можна рухати'); return; }
+  socket.emit('command', { type: 'move', ids, x: col, y: row, hold: orderMode === 'defense' });
+  banner(orderMode === 'defense' ? '🛡 Утримувати точку' : '⚔ Атака точки');
+}
 function ensurePanels() {
   if (!marketPanel) { marketPanel = document.createElement('div'); marketPanel.id = 'marketPanel'; marketPanel.className = 'sidepanel hidden'; document.getElementById('game').appendChild(marketPanel); }
   if (!arsenalPanel) { arsenalPanel = document.createElement('div'); arsenalPanel.id = 'arsenalPanel'; arsenalPanel.className = 'sidepanel hidden'; document.getElementById('game').appendChild(arsenalPanel); }
@@ -731,6 +792,8 @@ function ensurePanels() {
   if (!trucePanel) { trucePanel = document.createElement('div'); trucePanel.id = 'trucePanel'; trucePanel.className = 'sidepanel hidden'; G.appendChild(trucePanel); }
   if (!tradePanel) { tradePanel = document.createElement('div'); tradePanel.id = 'tradePanel'; tradePanel.className = 'sidepanel hidden'; G.appendChild(tradePanel); }
   if (!respondPanel) { respondPanel = document.createElement('div'); respondPanel.id = 'respondPanel'; respondPanel.className = 'sidepanel hidden'; G.appendChild(respondPanel); }
+  if (!orderMenu) { orderMenu = document.createElement('div'); orderMenu.id = 'orderMenu'; orderMenu.className = 'submenu hidden'; G.appendChild(orderMenu); }
+  if (!groupMenu) { groupMenu = document.createElement('div'); groupMenu.id = 'groupMenu'; groupMenu.className = 'submenu hidden'; G.appendChild(groupMenu); }
 }
 function openMarket() { closeMenus(); if (arsenalPanel) arsenalPanel.classList.add('hidden'); marketPanel.classList.remove('hidden'); renderMarket(); }
 function closeMarket() { if (marketPanel) marketPanel.classList.add('hidden'); }
