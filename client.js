@@ -83,11 +83,12 @@ window.addEventListener('DOMContentLoaded', () => {
   $('techClose').onclick = () => el.techPanel.classList.add('hidden');
   const sb = $('selBtn'); if (sb) sb.onclick = () => { selectMode = !selectMode; sb.classList.toggle('on', selectMode); banner(selectMode ? 'Режим виділення: обведи воїнів пальцем' : 'Режим карти: палець рухає карту'); };
   const mb = $('modeBtn'); if (mb) mb.onclick = () => fitWholeMap();
-  const zi = $('zoomIn'), zo = $('zoomOut'), mu = $('muteBtn');
+  const zi = $('zoomIn'), zo = $('zoomOut');
   if (zi) zi.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
   if (zo) zo.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
-  if (mu) mu.onclick = () => { muted = !muted; mu.textContent = muted ? '🔇' : '🔊'; if (muted) musicStopAll(); else { sfxInit(); updateMusic(); } };
-  { const ms = $('musBtn'); if (ms) ms.onclick = () => { musicOn = !musicOn; ms.style.opacity = musicOn ? '1' : '.45'; if (musicOn) { sfxInit(); updateMusic(); } else musicStopAll(); }; }
+  { const ab = $('audioBtn'); if (ab) ab.onclick = () => { muted = !muted; ab.textContent = muted ? '🔇' : '🔊'; ab.classList.toggle('off', muted); if (muted) musicStopAll(); else { sfxInit(); updateMusic(); } }; }
+  { const pb = $('pauseBtn'); if (pb) pb.onclick = () => { sfxInit(); socket.emit('pauseToggle'); }; }
+  { const le = $('lobbyExitBtn'); if (le) le.onclick = () => { try { socket.emit('leaveRoom'); } catch (e) {} location.reload(); }; }
   setupCanvas();
 });
 function once(fn) { let u = false; return () => { if (u) return; u = true; fn(); setTimeout(() => u = false, 1200); }; }
@@ -204,6 +205,17 @@ function resetFog() { if (gridArr) { gridArr.fill(-2); seen.fill(0); mem.fill(-1
 
 function ensurePeaceEl() { if (peaceEl) return; peaceEl = document.createElement('div'); peaceEl.id = 'peace'; document.getElementById('game').appendChild(peaceEl); }
 function ensureHudExtras() { const G = document.getElementById('game'); if (!truceEl) { truceEl = document.createElement('div'); truceEl.id = 'truceHud'; truceEl.style.display = 'none'; G.appendChild(truceEl); } if (!killfeedEl) { killfeedEl = document.createElement('div'); killfeedEl.id = 'killfeed'; G.appendChild(killfeedEl); } }
+function updatePause() {
+  const pb = document.getElementById('pauseBtn'); if (pb && st) pb.classList.toggle('on', !!st.iPaused);
+  const G = document.getElementById('game');
+  let ov = document.getElementById('pauseOverlay');
+  if (st && st.paused) { if (!ov) { ov = document.createElement('div'); ov.id = 'pauseOverlay'; G.appendChild(ov); } ov.innerHTML = '⏸ ПАУЗА<small>натисніть ⏸ вгорі, щоб продовжити</small>'; ov.style.display = 'flex'; }
+  else if (ov) ov.style.display = 'none';
+  let mi = document.getElementById('pauseMini');
+  const partial = st && !st.paused && st.pauseVotes > 0 && st.pauseTotal > 1;
+  if (partial) { if (!mi) { mi = document.createElement('div'); mi.id = 'pauseMini'; G.appendChild(mi); } mi.textContent = '⏸ ' + st.pauseVotes + '/' + st.pauseTotal + ' за паузу'; mi.style.display = 'block'; }
+  else if (mi) mi.style.display = 'none';
+}
 function updateTruce() { if (!truceEl || !st || !st.me) return; const t = st.me.truce; if (t) { const m = Math.floor(t.left / 60), s = t.left % 60; truceEl.innerHTML = `🤝 Мир з <b style="color:${COL[IDX[t.who]]}">${CNAME[IDX[t.who]]}</b> ${m}:${String(s).padStart(2, '0')}`; truceEl.style.display = 'block'; } else truceEl.style.display = 'none'; }
 function renderKillfeed() {
   if (!killfeedEl || !st) return; const feed = st.feed || [];
@@ -233,7 +245,7 @@ function onState(s) {
   updateRes(); updateArmyBtn(); updateScoutBtn(); updatePeace(); refreshCtx(); renderMarket(); renderArsenal();
   { const hi = document.getElementById('hudinfo'); if (hi) hi.textContent = '⏱ ' + fmtTime(st.t) + '  ·  📶 ' + ping + 'мс'; }
   updateMusic();
-  updateTruce(); renderKillfeed(); pruneGroups();
+  updateTruce(); renderKillfeed(); pruneGroups(); updatePause();
   { const inc = st.units.find(u => u.o !== me.index && u.nc && u.prop && u.prop.to === me.index); const key = inc ? (inc.i + ':' + inc.prop.k) : null; if (key && key !== lastIncoming) { lastIncoming = key; banner('📜 Вам пропонують ' + (inc.prop.k === 'truce' ? 'мир' : 'обмін') + ' — тапніть по ' + (inc.prop.k === 'truce' ? 'прокламентерці' : 'торговцю') + ' ворога'); } if (!key) lastIncoming = null; }
   if (el.techPanel && !el.techPanel.classList.contains('hidden')) renderTech();
 }

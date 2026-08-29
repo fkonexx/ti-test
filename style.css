@@ -283,22 +283,22 @@ body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--
 #heroMenu .btn.s{flex:0 1 auto;min-width:auto;max-width:none;padding:7px 10px;font-size:12px;}
 /* ---- Меню Наказ / Військо ---- */
 /* ---- Меню «Наказ» / «Військо» — симетричні панелі-сітки ---- */
-#orderMenu,#groupMenu{left:calc(74px + env(safe-area-inset-left));right:calc(74px + env(safe-area-inset-right));
-  bottom:calc(74px + env(safe-area-inset-bottom));flex-direction:column;align-items:stretch;gap:5px;padding:10px 12px;
-  max-height:54vh;overflow-y:auto;background:rgba(13,16,23,.94);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
-.omttl{font-size:11px;font-weight:700;color:var(--muted,#9aa4b2);text-align:left;margin:3px 2px 0;letter-spacing:.3px;}
+#orderMenu,#groupMenu{left:calc(74px + env(safe-area-inset-left));right:auto;width:min(340px,84vw);
+  bottom:calc(74px + env(safe-area-inset-bottom));flex-direction:column;align-items:stretch;gap:4px;padding:8px 10px;
+  max-height:min(52vh,300px);overflow-y:auto;background:rgba(13,16,23,.95);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.55);}
+.omttl{font-size:10px;font-weight:700;color:var(--muted,#9aa4b2);text-align:left;margin:2px 2px 0;letter-spacing:.3px;}
 .omgrid{display:grid;gap:5px;}
 .omg2{grid-template-columns:repeat(2,1fr);}
 .omg4{grid-template-columns:repeat(4,1fr);}
 .omg5{grid-template-columns:repeat(5,1fr);}
-.omb{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:9px 4px;
-  font-size:13px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.1;min-width:0;}
+.omb{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:7px 3px;
+  font-size:12px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;line-height:1.05;min-width:0;}
 .omb small{font-size:9px;opacity:.7;font-weight:600;}
 .omb.on{background:#2c4a7a;border-color:#5a8cff;}
 .omb.no{border-color:#c0455a;color:#ffd0d8;}
 .omb.sm{padding:8px 3px;font-size:12px;}
-#orderMenu .pnbtn,#groupMenu .pnbtn{margin-top:6px;padding:11px;font-size:14px;}
-@media (max-width:430px){ #orderMenu,#groupMenu{left:calc(62px + env(safe-area-inset-left));right:calc(62px + env(safe-area-inset-right));padding:8px 10px;} .omb{font-size:12px;padding:7px 3px;} }
+#orderMenu .pnbtn,#groupMenu .pnbtn{margin-top:5px;padding:9px;font-size:13px;}
+@media (max-width:430px){ #orderMenu,#groupMenu{left:calc(60px + env(safe-area-inset-left));width:min(300px,80vw);padding:7px 8px;} .omb{font-size:11px;padding:6px 2px;} }
 
 /* ---- Компактне меню «Наказ»/«Військо» ---- */
 
@@ -377,3 +377,13 @@ button.pcard:active{filter:brightness(1.12);}
 /* v7.3.2: лоббі теж скролиться */
 #lobby.screen{flex-direction:column;justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 #lobby .panel{margin:auto;}
+
+/* v7.5: пауза + стан кнопок звуку */
+.icon.on{background:var(--accent)!important;color:#0d1017!important;border-color:var(--accent)!important;}
+.icon.off{opacity:.5;}
+#pauseOverlay{position:absolute;inset:0;z-index:20;display:none;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(8,10,15,.55);color:#fff;font-size:34px;font-weight:800;letter-spacing:3px;gap:8px;pointer-events:none;}
+#pauseOverlay small{font-size:13px;font-weight:600;opacity:.85;letter-spacing:.3px;}
+#pauseMini{position:absolute;left:50%;transform:translateX(-50%);top:calc(112px + env(safe-area-inset-top));
+  background:rgba(90,60,20,.85);border:1px solid #d0a020;color:#ffe6a0;border-radius:11px;padding:4px 12px;
+  font-size:12px;font-weight:700;z-index:7;white-space:nowrap;}

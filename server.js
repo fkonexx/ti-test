@@ -218,8 +218,16 @@ function applyDamage(s, atk, tgt, dmg, splash, splashPct) {
   if (splash > 0) { const sd = dmg * (splashPct || 0.6); for (const u of s.units) { if (u.owner === atk || u.hp <= 0 || u.scout || u.diplo || u === tgt.ref) continue; if (dist(px, py, u.x, u.y) <= splash) { const w = u.hp > 0; u.hp -= sd; u.lastHit = s.t; if (w && u.hp <= 0) credit(s, atk, false); } } }
 }
 
+function recomputePause(room) {
+  if (!room.pauseReqs) room.pauseReqs = new Set();
+  const ids = [...new Set(room.players.filter(p => p.connected && !String(p.id).startsWith('BOT')).map(p => p.id))];
+  room.pauseTotal = ids.length;
+  room.pauseVotes = ids.filter(id => room.pauseReqs.has(id)).length;
+  room.paused = ids.length > 0 && ids.every(id => room.pauseReqs.has(id));
+}
 function step(room) {
   const s = room.state; if (!s || s.winner !== null) return;
+  if (room.paused) { broadcast(room); return; }
   s.t += DT; s.shots = [];
   if (s.peace > 0) s.peace = Math.max(0, s.peace - DT);
   const peace = s.peace > 0;
@@ -458,7 +466,7 @@ function sendState(sock, room, o, full, key) {
   const ent = serializeEntities(s, o, full, vis); const g = gridFor(s, o, full, vis);
   const last = room.lastGrid[key];
   if (!last) ent.gridFull = g; else { const diff = []; for (let i = 0; i < g.length; i++) if (g[i] !== last[i]) diff.push(i, g[i]); ent.gridDiff = diff; }
-  room.lastGrid[key] = g; sock.emit('state', ent);
+  room.lastGrid[key] = g; ent.paused = !!room.paused; ent.pauseVotes = room.pauseVotes || 0; ent.pauseTotal = room.pauseTotal || 0; ent.iPaused = !!(room.pauseReqs && room.pauseReqs.has(sock.id)); sock.emit('state', ent);
 }
 function broadcast(room) {
   const s = room.state; if (!s) return;
@@ -485,6 +493,7 @@ function maybeStart(room) {
   room.loop = setInterval(() => step(room), TICK_MS); broadcastLobby(room);
 }
 function leaveCurrentRoom(socket) {
+  { const r0 = rooms[socket.data.room]; if (r0 && r0.pauseReqs) { r0.pauseReqs.delete(socket.id); recomputePause(r0); } }
   const code = socket.data.room; socket.data.room = null;
   if (!code) return; const room = rooms[code]; if (!room) return; socket.leave(code);
   if (room.debug) { if (room.loop) clearInterval(room.loop); delete rooms[code]; return; }
@@ -590,6 +599,7 @@ io.on('connection', (socket) => {
 
   socket.on('command', (cmd) => {
     const room = rooms[socket.data.room]; if (!room || !room.started || !room.state || room.state.winner !== null) return;
+    if (room.paused) return;
     const s = room.state, o = socket.data.index, me = playerOf(s, o); if (!me || !me.alive) return;
     const peace = s.peace > 0;
 
@@ -724,6 +734,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('pingCheck', (ts) => socket.emit('pongCheck', ts));
+  socket.on('leaveRoom', () => leaveCurrentRoom(socket));
+  socket.on('pauseToggle', () => { const room = rooms[socket.data.room]; if (!room || !room.started) return; if (!room.pauseReqs) room.pauseReqs = new Set(); if (room.pauseReqs.has(socket.id)) room.pauseReqs.delete(socket.id); else room.pauseReqs.add(socket.id); recomputePause(room); });
   socket.on('disconnect', () => { leaveCurrentRoom(socket); });
 });
 
