@@ -5,7 +5,7 @@ const socket = io();
 const me = { index: -1, color: null, host: false, id: null, debug: false };
 let gameKind = 'multi';
 const PKEY = 'fe_profile';
-function loadProfile() { try { const p = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (p && typeof p === 'object') return Object.assign({ name: '', games: 0, wins: 0, losses: 0 }, p); } catch (e) {} return { name: '', games: 0, wins: 0, losses: 0 }; }
+function loadProfile() { const D = { name: '', games: 0, wins: 0, losses: 0, kills: 0, made: 0, built: 0, razed: 0, gathered: 0, bestGuild: 0 }; try { const p = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (p && typeof p === 'object') return Object.assign(D, p); } catch (e) {} return D; }
 function saveProfile() { try { localStorage.setItem(PKEY, JSON.stringify(profile)); } catch (e) {} }
 let profile = loadProfile();
 let W = 130, H = 130, biomes = null, st = null, spawns = null;
@@ -66,9 +66,11 @@ window.addEventListener('DOMContentLoaded', () => {
   $('joinBtn').onclick = once(() => { const cd = el.code.value.trim().toUpperCase(); if (!cd) { banner2('Введи код кімнати'); return; } const n = ensureName(); if (n) socket.emit('joinRoom', { code: cd, name: n }); });
   { const tb = $('testBtn'); if (tb) tb.onclick = once(() => socket.emit('enterTest')); }
   { const tu = $('tutorialBtn'); if (tu) tu.onclick = once(() => socket.emit('startTutorial', { name: profile.name || 'Ти' })); }
+  { const pb = $('profileBtn'); if (pb) pb.onclick = () => openProfile(); }
   { const en = $('editNameBtn'); if (en) en.onclick = () => editName(); }
-  { const pn = $('pName'); if (pn) pn.onclick = () => editName(); }
-  { const fb = $('fsBtn'); if (fb) fb.onclick = () => goFullscreen(); }
+  { const rs = $('resetStatsBtn'); if (rs) rs.onclick = () => resetStats(); }
+  { const pc = $('profClose'); if (pc) pc.onclick = () => document.getElementById('profileOverlay').classList.add('hidden'); }
+  { const mf = $('menuFsBtn'); if (mf) mf.onclick = () => goFullscreen(); }
   el.startBtn.onclick = () => { if (me.debug) socket.emit('startGame'); else socket.emit('setReady'); };
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
@@ -128,11 +130,31 @@ socket.on('gameOver', d => showEnd(d));
 
 function renderProfile() {
   const nm = profile.name || '';
-  const pn = document.getElementById('pName'); if (pn) pn.textContent = nm || 'Новий гравець';
-  const av = document.getElementById('pAvatar'); if (av) av.textContent = nm ? nm[0].toUpperCase() : '🛡️';
+  const disp = nm || 'Новий гравець';
+  const av0 = nm ? nm[0].toUpperCase() : '🛡️';
+  const pn = document.getElementById('pName'); if (pn) pn.textContent = disp;
+  const av = document.getElementById('pAvatar'); if (av) av.textContent = av0;
   const wr = profile.games ? Math.round(profile.wins / profile.games * 100) : 0;
-  const ps = document.getElementById('pStats'); if (ps) ps.innerHTML = `<span>🎮 <b>${profile.games}</b></span><span>🏆 <b>${profile.wins}</b></span><span>💀 <b>${profile.losses}</b></span><span>📈 <b>${wr}%</b></span>`;
+  const sub = document.getElementById('pSub'); if (sub) sub.textContent = profile.games ? `🎮 ${profile.games} · 🏆 ${profile.wins} · 📈 ${wr}%  ·  профіль ›` : 'Профіль і статистика ›';
   if (el && el.name) el.name.value = nm;
+}
+function openProfile() {
+  const ov = document.getElementById('profileOverlay'); if (!ov) return;
+  const nm = profile.name || 'Новий гравець';
+  document.getElementById('pName2').textContent = nm;
+  const av = document.getElementById('pAvatar2'); if (av) av.textContent = profile.name ? profile.name[0].toUpperCase() : '🛡️';
+  const wr = profile.games ? Math.round(profile.wins / profile.games * 100) : 0;
+  const rows = [
+    ['🎮 Зіграно ігор', profile.games], ['🏆 Перемог', profile.wins], ['💀 Поразок', profile.losses], ['📈 Відсоток перемог', wr + '%'],
+    ['⚔ Усього вбито', profile.kills], ['👥 Створено військ', profile.made], ['🏗 Збудовано споруд', profile.built],
+    ['🏚 Знищено споруд', profile.razed], ['📦 Зібрано ресурсів', profile.gathered], ['🏛 Найвищий рівень гільдії', profile.bestGuild],
+  ];
+  document.getElementById('profStats').innerHTML = rows.map(([l, v]) => `<div class="prow"><span>${l}</span><b>${v}</b></div>`).join('');
+  ov.classList.remove('hidden');
+}
+function resetStats() {
+  if (!confirm('Скинути всю статистику? Ім\'я залишиться.')) return;
+  const nm = profile.name; profile = loadProfile(); profile.name = nm; saveProfile(); renderProfile(); openProfile();
 }
 function editName() { const v = prompt("Твоє ім'я (до 16 символів):", profile.name || ''); if (v !== null) { profile.name = v.trim().slice(0, 16); saveProfile(); renderProfile(); } }
 function ensureName() { if (!profile.name) { editName(); } return profile.name || ''; }
@@ -146,15 +168,24 @@ function goFullscreen() {
 function showTutorial() {
   const ov = document.getElementById('tutOverlay'); if (!ov) return;
   const steps = [
-    ['🎓 Тренування', 'Це безпечний режим. Десь на мапі — «Тренувальна база» суперника, яку можна знищити. Тебе тут ніхто не атакує.'],
-    ['🗺 Керування', '«Виділення» — обведи воїнів пальцем; коли вимкнено — палець рухає мапу. + / − масштаб, «Карта» показує всю мапу.'],
-    ['📦 Ресурси', 'Зверху: 🌲 дерево, ⛏ камінь, 🍞 їжа, 💰 золото, 🔧 жетони. Їх дають збирачі та будівлі — витрачай на розвиток.'],
-    ['🏗 Будівлі', '«Будувати»: казарма (армія), ферма/копальня (ресурси), стіни й вежі (захист). Будуй у зоні своєї гільдії.'],
-    ['👥 Армія', '«Армія» — наймай воїнів у казармі: ближні, лучники, маги, облога. Різні типи сильні по-різному.'],
-    ['🎯 Наказ', '«Наказ» → Атака чи Захист, кому (Всі / Група), тоді тап по точці. «Військо» — зберігай групи 1–4.'],
-    ['🕊 Герої', '«Герої»: розвідка, прокламентерка (пропонує мир) і торговець (обмін ресурсами) біля ворожої гільдії.'],
-    ['🏁 Мета', 'Перечекай короткий мир, збери армію та знищ ворожу гільдію. Успіхів, полководцю!'],
-  ];
+    ['🎓 Тренування', 'Це безпечний режим. Десь на мапі є «Тренувальна база» суперника — її можна знищити. Тебе тут ніхто не атакує. Мета гри: знищити ворожу гільдію; останній, хто вцілів, — переможець.'],
+    ['🗺 Керування камерою', 'Кнопка «Виділення» (ліворуч, над «Картою»): коли увімкнена — обводиш воїнів пальцем; коли вимкнена — палець рухає мапу. Кнопки + / − масштабують, «Карта» показує всю мапу, а 🏛 повертає до твоєї гільдії.'],
+    ['⏳ Мир, день і ніч', 'На початку діє мирний період — армію не можна рухати, лише розвиватись і розвідувати. Далі — війна. Є цикл дня та ночі (вночі темніше й гірша видимість) і зрідка дощ. Стеж за таймером ⏱ угорі.'],
+    ['📦 Ресурси', '🌲 дерево, ⛏ камінь, 🍞 їжа, 💰 золото і 🔧 жетони — угорі екрана. Їх дають будівлі-збирачі та територія. Ресурси йдуть на будівлі, військо й технології; жетони — на особливі покращення.'],
+    ['🏛 Гільдія і територія', 'Гільдія — серце імперії; її знищення = поразка. Навколо неї — твоя зона впливу, де можна будувати. Гільдія має рівні: що вищий — то більше можливостей. Захищай її найкраще.'],
+    ['🚩 Прапори (розширення)', 'Щоб будувати далі від гільдії, розвідник ставить прапори — вони створюють нові зони забудови й претендують на територію. Так імперія росте по мапі.'],
+    ['🏗 Будівлі', '«Будувати»: казарма (військо), ферма/копальня/лісопилка (ресурси), стіни й вежі/гармати (захист), майстерня (облога), базар (обмін), арсенал (прокачка армії). Будуй у підсвіченій зоні впливу.'],
+    ['🛡 Оборона', 'Стіни сповільнюють ворога (автоз’єднуються в лінію), вежі й гармати стріляють по тих, хто підійшов. Міни 💣 підривають ворожі війська. Комбінуй їх довкола гільдії.'],
+    ['👥 Види військ', 'Ближні (меч, спис) — стійкі в контакті; лучники й маги б’ють здалеку; ассасин — швидка кіннота; катапульта й таран — облога будівель; священник лікує, а командир підсилює армію аурою.'],
+    ['⚙ Виробництво', '«Армія» → наймай воїнів у казармі (потрібні їжа/золото, іноді дерево/камінь). Замовлення самі розподіляються між казармами. Різні типи відкриваються з розвитком.'],
+    ['🎯 Накази', '«Наказ» → обери ⚔ Атака чи 🛡 Захист і кому (Всі / Група), тоді тап по точці. Захист — стояти й тримати точку. Атака — йти в бій; по будівлі дальнобійні тримають дистанцію, ближні йдуть впритул.'],
+    ['🔢 Групи («Військо»)', 'Виділи воїнів і запиши їх у групу 1–4, щоб швидко обирати й давати накази саме їм. Юніт належить лише одній групі; можна обрати або розпустити групу.'],
+    ['🔭 Герої', '«Герої»: розвідник (велика видимість, ставить прапори, бачить міни), прокламентерка (пропонує мир) і торговець (обмін). Вони не б’ються і не стають ціллю — бережи їх для дипломатії й розвідки.'],
+    ['🕊 Дипломатія (мир)', 'Підведи прокламентерку до ворожої гільдії (≤4 клітини) й запропонуй мир на 1/3/5/10 хв. Якщо погодяться — армії та будівлі сторін не шкодять одна одній. Один мир на гравця; після відмови/завершення — пауза 3 хв.'],
+    ['🤝 Торгівля', 'Базар дає щоденні обміни з банком (удень). Торговець пропонує обмін ресурсами іншому гравцю: без миру отримувач має −15%, у мирі — без штрафу. Після угоди торговець сам несе ресурси до гільдії (над ним «!»).'],
+    ['🔧 Арсенал і розвиток', '«Розвиток» відкриває технології та збирачів. Арсенал прокачує армію (до 25 рівнів: більше HP і шкоди). Розвивайся швидше за ворога — і твоє військо стане сильнішим у бою.'],
+    ['🏁 Уперед!', 'Перечекай короткий мир, розбудуйся, збери армію та знищ ворожу тренувальну гільдію. А тоді — виклич справжніх суперників у мультиплеєрі. Успіхів, полководцю!'],
+  ]
   let i = 0;
   function render() {
     const [t, b] = steps[i];
@@ -679,7 +710,12 @@ function updateDbg() { const b = document.getElementById('dbgSwitch'); if (!b) r
 function showEnd(d) {
   el.overlay.classList.remove('hidden');
   musicStopAll();
-  if (gameKind === 'multi' && me.index >= 0) { profile.games++; if (d.winner === me.index) profile.wins++; else profile.losses++; saveProfile(); renderProfile(); }   // музика замовкає на екрані кінця бою
+  if (gameKind === 'multi' && me.index >= 0) {
+    profile.games++; if (d.winner === me.index) profile.wins++; else profile.losses++;
+    const mine = (d.stats || []).find(x => x.index === me.index);
+    if (mine) { profile.kills += mine.kills || 0; profile.made += mine.made || 0; profile.built += mine.built || 0; profile.razed += mine.razed || 0; profile.gathered += mine.gathered || 0; profile.bestGuild = Math.max(profile.bestGuild, mine.guildLevel || 0); }
+    saveProfile(); renderProfile();
+  }   // музика замовкає на екрані кінця бою
   const rows = [...d.stats].sort((a, b) => (b.territory + b.kills * 6 + b.razed * 20 + b.built * 3 + (b.alive ? 300 : 0)) - (a.territory + a.kills * 6 + a.razed * 20 + a.built * 3 + (a.alive ? 300 : 0)));
   const winTxt = d.winner === -1 ? 'Нічия' : `Перемогла <span style="color:${COL[IDX[d.winner]]}">${CNAME[IDX[d.winner]]}</span> імперія`;
   let html = `<h2 class="endtitle">🏆 ${winTxt}</h2><div class="statwrap">`; let place = 0;

@@ -347,3 +347,25 @@ body.pseudo-fs #fsBtn{background:var(--accent);color:#0d1017;border-color:var(--
   .pavatar{width:46px;height:46px;font-size:22px;}
   .tutcard h2{font-size:20px;} .tutcard p{font-size:13.5px;}
 }
+
+/* ================= v7.3.1: меню-скрол + профіль ================= */
+#menu.screen{flex-direction:column;justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+#menu .menuwrap{margin:auto;}
+/* профіль як кнопка */
+button.pcard{width:100%;cursor:pointer;text-align:left;font:inherit;color:var(--text);}
+button.pcard:active{filter:brightness(1.12);}
+.pcard .psub{font-size:12px;color:var(--muted);margin-top:3px;}
+/* оверлей профілю */
+#profileOverlay{position:fixed;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:rgba(8,10,15,.75);backdrop-filter:blur(3px);overflow-y:auto;}
+.profcard{width:100%;max-width:420px;background:linear-gradient(160deg,#1a2230,#141a24);border:1px solid var(--line);
+  border-radius:20px;padding:22px 20px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.6);margin:auto;}
+.pclose{position:absolute;top:12px;right:14px;background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;}
+.profhead{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
+.pavatar.big{width:64px;height:64px;font-size:30px;border-radius:16px;}
+.profhead .pname{font-size:22px;font-weight:800;}
+.profhead .mini{color:var(--accent);font-size:13px;margin-top:4px;padding:0;}
+.profstats{display:flex;flex-direction:column;gap:2px;margin-bottom:16px;}
+.prow{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-radius:10px;font-size:14px;}
+.prow:nth-child(odd){background:var(--panel2);}
+.prow b{font-size:16px;color:var(--accent);}

@@ -22,16 +22,13 @@
         <p class="tag">Онлайн-стратегія · 2–4 гравці · туман війни</p>
       </div>
 
-      <div class="pcard" id="profileCard">
+      <button class="pcard" id="profileBtn">
         <div class="pavatar" id="pAvatar">🛡️</div>
         <div class="pinfo">
-          <div class="pname-row">
-            <span class="pname" id="pName">Гравець</span>
-            <button id="editNameBtn" class="mini" title="Змінити ім'я">✏️</button>
-          </div>
-          <div class="pstats" id="pStats"></div>
+          <div class="pname" id="pName">Гравець</div>
+          <div class="psub" id="pSub">Профіль і статистика ›</div>
         </div>
-      </div>
+      </button>
 
       <div class="menu-actions">
         <button id="createBtn" class="btn big">🏰 Створити кімнату</button>
@@ -46,7 +43,7 @@
         <button id="testBtn" class="btn line">🧪 Тестовий режим</button>
       </div>
 
-      <button id="fsBtn" class="btn ghostsm">⛶ На весь екран / додати на головний</button>
+      <button id="menuFsBtn" class="btn ghostsm">⛶ На весь екран / додати на головний</button>
       <input id="nameInput" type="hidden" />
     </div>
   </section>
@@ -110,6 +107,20 @@
       <button id="techBtn"   class="btn ctrl"><i>&#9881;</i>Розвиток</button>
     </div>
 
+    <div id="profileOverlay" class="hidden">
+      <div class="profcard">
+        <button class="pclose" id="profClose">&#10005;</button>
+        <div class="profhead">
+          <div class="pavatar big" id="pAvatar2">🛡️</div>
+          <div>
+            <div class="pname" id="pName2">Гравець</div>
+            <button id="editNameBtn" class="mini">✏️ Змінити ім'я</button>
+          </div>
+        </div>
+        <div class="profstats" id="profStats"></div>
+        <button id="resetStatsBtn" class="btn ghostsm">Скинути статистику</button>
+      </div>
+    </div>
     <div id="tutOverlay" class="hidden"></div>
     <div id="overlay" class="hidden">
       <div class="panel"><h2 id="overTitle">&#8212;</h2><button id="againBtn" class="btn big">Нова гра</button></div>
