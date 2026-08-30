@@ -3,7 +3,7 @@
 // ============================================================
 const socket = io();
 const me = { index: -1, color: null, host: false, id: null, debug: false };
-let gameKind = 'multi';
+let gameKind = 'multi', roomPublic = true, roomsTimer = null;
 const PKEY = 'fe_profile';
 function loadProfile() { const D = { name: '', games: 0, wins: 0, losses: 0, kills: 0, made: 0, built: 0, razed: 0, gathered: 0, bestGuild: 0 }; try { const p = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (p && typeof p === 'object') return Object.assign(D, p); } catch (e) {} return D; }
 function saveProfile() { try { localStorage.setItem(PKEY, JSON.stringify(profile)); } catch (e) {} }
@@ -62,15 +62,21 @@ window.addEventListener('DOMContentLoaded', () => {
   const $ = id => document.getElementById(id);
   el = { menu: $('menu'), lobby: $('lobby'), game: $('game'), name: $('nameInput'), code: $('codeInput'), roomCode: $('roomCode'), playerList: $('playerList'), startBtn: $('startBtn'), lobbyHint: $('lobbyHint'), res: $('res'), banner: $('banner'), tokens: $('tokTop'), unitMenu: $('unitMenu'), buildMenu: $('buildMenu'), techPanel: $('techPanel'), techList: $('techList'), overlay: $('overlay'), ctxbar: $('ctxbar') };
   renderProfile();
-  $('createBtn').onclick = once(() => { const n = ensureName(); if (n) socket.emit('createRoom', { name: n }); });
+  $('createBtn').onclick = once(() => { const n = ensureName(); if (n) socket.emit('createRoom', { name: n, isPublic: roomPublic }); });
   $('joinBtn').onclick = once(() => { const cd = el.code.value.trim().toUpperCase(); if (!cd) { banner2('Введи код кімнати'); return; } const n = ensureName(); if (n) socket.emit('joinRoom', { code: cd, name: n }); });
   { const tb = $('testBtn'); if (tb) tb.onclick = once(() => socket.emit('enterTest')); }
   { const tu = $('tutorialBtn'); if (tu) tu.onclick = once(() => socket.emit('startTutorial', { name: profile.name || 'Ти' })); }
   { const pb = $('profileBtn'); if (pb) pb.onclick = () => openProfile(); }
+  { const pt = $('privToggle'); if (pt) pt.onclick = () => { roomPublic = !roomPublic; pt.textContent = roomPublic ? '🌐 Кімната: Публічна' : '🔒 Кімната: Приватна'; pt.classList.toggle('on', roomPublic); }; }
+  { const rb = $('roomsBtn'); if (rb) rb.onclick = () => openRooms(); }
+  { const rc = $('roomsClose'); if (rc) rc.onclick = () => closeRooms(); }
+  { const rr = $('roomsRefresh'); if (rr) rr.onclick = () => socket.emit('listRooms'); }
   { const en = $('editNameBtn'); if (en) en.onclick = () => editName(); }
   { const rs = $('resetStatsBtn'); if (rs) rs.onclick = () => resetStats(); }
   { const pc = $('profClose'); if (pc) pc.onclick = () => document.getElementById('profileOverlay').classList.add('hidden'); }
   { const mf = $('menuFsBtn'); if (mf) mf.onclick = () => goFullscreen(); }
+  socket.on('online', n => { const b = document.getElementById('onlineBadge'); if (b) b.textContent = '🟢 ' + n + ' онлайн'; });
+  socket.on('roomList', renderRooms);
   el.startBtn.onclick = () => { if (me.debug) socket.emit('startGame'); else socket.emit('setReady'); };
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
@@ -94,7 +100,7 @@ window.addEventListener('DOMContentLoaded', () => {
 function once(fn) { let u = false; return () => { if (u) return; u = true; fn(); setTimeout(() => u = false, 1200); }; }
 
 socket.on('connect', () => { me.id = socket.id; });
-socket.on('joined', d => { me.index = d.index; me.color = d.color; me.host = d.host; if (d.debug) me.debug = true; show('lobby'); });
+socket.on('joined', d => { me.index = d.index; me.color = d.color; me.host = d.host; if (d.debug) me.debug = true; if (typeof closeRooms === 'function') closeRooms(); show('lobby'); });
 socket.on('empireSwitched', d => { me.index = d.index; me.color = d.color; clearSel(); resetFog(); camInit = false; techSig = ''; updateRes(); updateDbg(); });
 socket.on('fogToggled', d => { resetFog(); const b = document.getElementById('dbgFog'); if (b) b.textContent = d.on ? '🌫 Туман: УВІМК' : '🌫 Туман: ВИМК'; });
 let ping = 0, pingTimer = null;
@@ -129,6 +135,20 @@ socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.
 socket.on('state', s => onState(s));
 socket.on('gameOver', d => showEnd(d));
 
+function openRooms() { const ov = document.getElementById('roomsOverlay'); if (!ov) return; ov.classList.remove('hidden'); const l = document.getElementById('roomsList'); if (l) l.innerHTML = '<div class="roomsempty">Оновлення…</div>'; socket.emit('listRooms'); if (roomsTimer) clearInterval(roomsTimer); roomsTimer = setInterval(() => socket.emit('listRooms'), 3000); }
+function closeRooms() { const ov = document.getElementById('roomsOverlay'); if (ov) ov.classList.add('hidden'); if (roomsTimer) { clearInterval(roomsTimer); roomsTimer = null; } }
+function renderRooms(list) {
+  const el2 = document.getElementById('roomsList'); if (!el2) return;
+  if (!list || !list.length) { el2.innerHTML = '<div class="roomsempty">Немає публічних кімнат.<br>Створи свою — і друзі побачать її тут.</div>'; return; }
+  el2.innerHTML = list.map(r => {
+    const full = r.players >= r.max, inGame = r.started, dis = full || inGame;
+    const status = inGame ? ('⚔ Бій іде · ' + fmtTime(r.elapsed)) : (full ? 'Повна' : '🕓 Очікування');
+    const label = inGame ? 'Іде бій' : (full ? 'Повна' : 'Увійти');
+    return `<div class="roomitem"><div class="ri-main"><b>${r.host}</b><small>#${r.code} · 👥 ${r.players}/${r.max} · ${status}</small></div>`
+      + `<button class="ri-join${dis ? ' dis' : ''}" data-join="${r.code}"${dis ? ' disabled' : ''}>${label}</button></div>`;
+  }).join('');
+  el2.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { const n = ensureName(); if (n) socket.emit('joinRoom', { code: b.dataset.join, name: n }); });
+}
 function renderProfile() {
   const nm = profile.name || '';
   const disp = nm || 'Новий гравець';

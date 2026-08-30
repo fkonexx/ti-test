@@ -549,12 +549,24 @@ function buildPlacement(s, o, type, cx, cy) {
   return inZone(s, o, cx, cy);
 }
 
+let onlineCount = 0;
+function publicRoomsInfo() {
+  return Object.values(rooms).filter(r => r.public).map(r => ({
+    code: r.code,
+    players: [...new Set(r.players.filter(p => p.connected && !String(p.id).startsWith('BOT')).map(p => p.id))].length,
+    max: 4, started: !!r.started,
+    elapsed: (r.started && r.state) ? Math.floor(r.state.t) : 0,
+    host: (r.players[0] && r.players[0].name) || 'Гравець'
+  }));
+}
 io.on('connection', (socket) => {
+  onlineCount++; io.emit('online', onlineCount); socket.emit('online', onlineCount);
+  socket.on('listRooms', () => socket.emit('roomList', publicRoomsInfo()));
   socket.on('enterTest', () => startDebug(socket));
   socket.on('startTutorial', ({ name } = {}) => startTutorial(socket, name));
-  socket.on('createRoom', ({ name } = {}) => {
+  socket.on('createRoom', ({ name, isPublic } = {}) => {
     leaveCurrentRoom(socket);
-    const code = newRoomCode(); const room = { code, host: socket.id, started: false, players: [], state: null, loop: null, cfg: { proclaimer: true, trader: true } }; rooms[code] = room;
+    const code = newRoomCode(); const room = { code, host: socket.id, started: false, players: [], state: null, loop: null, cfg: { proclaimer: true, trader: true }, public: !!isPublic }; rooms[code] = room;
     room.players.push({ id: socket.id, name: (name || 'Гравець 1').slice(0, 16), index: 0, color: COLORS[0], connected: true, ready: false });
     socket.data.room = code; socket.data.index = 0; socket.data.debug = false; socket.join(code);
     socket.emit('joined', { code, index: 0, color: COLORS[0], host: true }); broadcastLobby(room);
@@ -736,7 +748,7 @@ io.on('connection', (socket) => {
   socket.on('pingCheck', (ts) => socket.emit('pongCheck', ts));
   socket.on('leaveRoom', () => leaveCurrentRoom(socket));
   socket.on('pauseToggle', () => { const room = rooms[socket.data.room]; if (!room || !room.started) return; if (!room.pauseReqs) room.pauseReqs = new Set(); if (room.pauseReqs.has(socket.id)) room.pauseReqs.delete(socket.id); else room.pauseReqs.add(socket.id); recomputePause(room); });
-  socket.on('disconnect', () => { leaveCurrentRoom(socket); });
+  socket.on('disconnect', () => { leaveCurrentRoom(socket); onlineCount = Math.max(0, onlineCount - 1); io.emit('online', onlineCount); });
 });
 
 function placeMineOk(s, o, cx, cy) {
