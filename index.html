@@ -15,12 +15,30 @@
 <body>
 
   <!-- МЕНЮ -->
+  <section id="auth" class="screen">
+    <div class="authwrap">
+      <h1 class="logo">ЧОТИРИ<span>ІМПЕРІЇ</span></h1>
+      <p class="tag">Увійди або створи акаунт</p>
+      <div class="authtabs">
+        <button id="tabLogin" class="authtab on">Вхід</button>
+        <button id="tabReg" class="authtab">Реєстрація</button>
+      </div>
+      <input id="authUser" placeholder="Логін (лат. літери, цифри, _)" autocapitalize="none" autocomplete="off" maxlength="16" />
+      <input id="authNick" placeholder="Нікнейм (як тебе бачитимуть)" maxlength="16" style="display:none" />
+      <input id="authPass" type="password" placeholder="Пароль (від 4 символів)" maxlength="40" />
+      <div id="authMsg" class="authmsg"></div>
+      <button id="authSubmit" class="btn big">Увійти</button>
+      <button id="guestBtn" class="btn ghostsm">Грати гостем (без збереження)</button>
+      <div class="online js-online">🟢 … онлайн</div>
+    </div>
+  </section>
+
   <section id="menu" class="screen">
     <div class="menuwrap">
       <div class="brand">
         <h1 class="logo">ЧОТИРИ<span>ІМПЕРІЇ</span></h1>
         <p class="tag">Онлайн-стратегія · 2–4 гравці · туман війни</p>
-        <div id="onlineBadge" class="online">🟢 … онлайн</div>
+        <div class="online js-online">🟢 … онлайн</div>
       </div>
 
       <button class="pcard" id="profileBtn">
@@ -119,6 +137,18 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>
+    <div id="viewOverlay" class="hidden">
+      <div class="profcard">
+        <button class="pclose" id="viewClose">&#10005;</button>
+        <div class="profhead">
+          <div class="pavatar big" id="vAvatar">🛡️</div>
+          <div><div class="pname" id="vName">Гравець</div><div class="psub" id="vUser"></div></div>
+        </div>
+        <div class="profstats" id="vStats"></div>
+        <div class="omttl">Останні матчі</div>
+        <div id="vMatches" class="matchlist"></div>
+      </div>
+    </div>
     <div id="roomsOverlay" class="hidden">
       <div class="roomscard">
         <button class="pclose" id="roomsClose">&#10005;</button>
@@ -136,8 +166,15 @@
             <button id="editNameBtn" class="mini">✏️ Змінити ім'я</button>
           </div>
         </div>
+        <div class="ptabs">
+          <button id="ptStats" class="authtab on">Статистика</button>
+          <button id="ptMatches" class="authtab">Матчі</button>
+          <button id="ptBoard" class="authtab">Лідери</button>
+        </div>
         <div class="profstats" id="profStats"></div>
-        <button id="resetStatsBtn" class="btn ghostsm">Скинути статистику</button>
+        <div id="profMatches" class="matchlist" style="display:none"></div>
+        <div id="profBoard" class="matchlist" style="display:none"></div>
+        <button id="logoutBtn" class="btn ghostsm">Вийти з акаунта</button>
       </div>
     </div>
 </body>

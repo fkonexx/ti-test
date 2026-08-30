@@ -4,10 +4,11 @@
 const socket = io();
 const me = { index: -1, color: null, host: false, id: null, debug: false };
 let gameKind = 'multi', roomPublic = true, roomsTimer = null;
-const PKEY = 'fe_profile';
-function loadProfile() { const D = { name: '', games: 0, wins: 0, losses: 0, kills: 0, made: 0, built: 0, razed: 0, gathered: 0, bestGuild: 0 }; try { const p = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (p && typeof p === 'object') return Object.assign(D, p); } catch (e) {} return D; }
-function saveProfile() { try { localStorage.setItem(PKEY, JSON.stringify(profile)); } catch (e) {} }
-let profile = loadProfile();
+const TKEY = 'fe_token';
+let authToken = null; try { authToken = localStorage.getItem(TKEY) || null; } catch (e) {}
+let profile = null, myMatches = [], guestMode = false, authMode = 'login';
+function saveToken(t) { authToken = t; try { t ? localStorage.setItem(TKEY, t) : localStorage.removeItem(TKEY); } catch (e) {} }
+function $g(id) { return document.getElementById(id); }
 let W = 130, H = 130, biomes = null, st = null, spawns = null;
 let CELL = 26, camX = 0, camY = 0, camInit = false;
 let canvas, ctx, DPR = 1;
@@ -60,23 +61,36 @@ const SIEGE = { catapult: 1, ram: 1 };
 let el = {}, peaceEl = null;
 window.addEventListener('DOMContentLoaded', () => {
   const $ = id => document.getElementById(id);
-  el = { menu: $('menu'), lobby: $('lobby'), game: $('game'), name: $('nameInput'), code: $('codeInput'), roomCode: $('roomCode'), playerList: $('playerList'), startBtn: $('startBtn'), lobbyHint: $('lobbyHint'), res: $('res'), banner: $('banner'), tokens: $('tokTop'), unitMenu: $('unitMenu'), buildMenu: $('buildMenu'), techPanel: $('techPanel'), techList: $('techList'), overlay: $('overlay'), ctxbar: $('ctxbar') };
+  el = { auth: $('auth'), menu: $('menu'), lobby: $('lobby'), game: $('game'), name: $('nameInput'), code: $('codeInput'), roomCode: $('roomCode'), playerList: $('playerList'), startBtn: $('startBtn'), lobbyHint: $('lobbyHint'), res: $('res'), banner: $('banner'), tokens: $('tokTop'), unitMenu: $('unitMenu'), buildMenu: $('buildMenu'), techPanel: $('techPanel'), techList: $('techList'), overlay: $('overlay'), ctxbar: $('ctxbar') };
   renderProfile();
-  $('createBtn').onclick = once(() => { const n = ensureName(); if (n) socket.emit('createRoom', { name: n, isPublic: roomPublic }); });
-  $('joinBtn').onclick = once(() => { const cd = el.code.value.trim().toUpperCase(); if (!cd) { banner2('Введи код кімнати'); return; } const n = ensureName(); if (n) socket.emit('joinRoom', { code: cd, name: n }); });
+  $('createBtn').onclick = once(() => socket.emit('createRoom', { name: profile ? profile.nickname : 'Гість', isPublic: roomPublic }));
+  $('joinBtn').onclick = once(() => { const cd = el.code.value.trim().toUpperCase(); if (!cd) { banner2('Введи код кімнати'); return; } socket.emit('joinRoom', { code: cd, name: profile ? profile.nickname : 'Гість' }); });
   { const tb = $('testBtn'); if (tb) tb.onclick = once(() => socket.emit('enterTest')); }
-  { const tu = $('tutorialBtn'); if (tu) tu.onclick = once(() => socket.emit('startTutorial', { name: profile.name || 'Ти' })); }
+  { const tu = $('tutorialBtn'); if (tu) tu.onclick = once(() => socket.emit('startTutorial', { name: profile ? profile.nickname : 'Ти' })); }
   { const pb = $('profileBtn'); if (pb) pb.onclick = () => openProfile(); }
   { const pt = $('privToggle'); if (pt) pt.onclick = () => { roomPublic = !roomPublic; pt.textContent = roomPublic ? '🌐 Кімната: Публічна' : '🔒 Кімната: Приватна'; pt.classList.toggle('on', roomPublic); }; }
   { const rb = $('roomsBtn'); if (rb) rb.onclick = () => openRooms(); }
   { const rc = $('roomsClose'); if (rc) rc.onclick = () => closeRooms(); }
   { const rr = $('roomsRefresh'); if (rr) rr.onclick = () => socket.emit('listRooms'); }
   { const en = $('editNameBtn'); if (en) en.onclick = () => editName(); }
-  { const rs = $('resetStatsBtn'); if (rs) rs.onclick = () => resetStats(); }
-  { const pc = $('profClose'); if (pc) pc.onclick = () => document.getElementById('profileOverlay').classList.add('hidden'); }
+  { const pc = $('profClose'); if (pc) pc.onclick = () => $g('profileOverlay').classList.add('hidden'); }
+  { const lo = $('logoutBtn'); if (lo) lo.onclick = () => doLogout(); }
   { const mf = $('menuFsBtn'); if (mf) mf.onclick = () => goFullscreen(); }
-  socket.on('online', n => { const b = document.getElementById('onlineBadge'); if (b) b.textContent = '🟢 ' + n + ' онлайн'; });
+  { const tl = $('tabLogin'); if (tl) tl.onclick = () => setAuthMode('login'); }
+  { const tr = $('tabReg'); if (tr) tr.onclick = () => setAuthMode('register'); }
+  { const as = $('authSubmit'); if (as) as.onclick = () => submitAuth(); }
+  { const gu = $('guestBtn'); if (gu) gu.onclick = () => playGuest(); }
+  { const ap = $('authPass'); if (ap) ap.addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); }); }
+  { const a = $('ptStats'), b = $('ptMatches'), c2 = $('ptBoard'); if (a) a.onclick = () => profileTab('stats'); if (b) b.onclick = () => profileTab('matches'); if (c2) c2.onclick = () => profileTab('board'); }
+  { const vc = $('viewClose'); if (vc) vc.onclick = () => $g('viewOverlay').classList.add('hidden'); }
+  socket.on('online', n => { document.querySelectorAll('.js-online').forEach(b => b.textContent = '🟢 ' + n + ' онлайн'); });
   socket.on('roomList', renderRooms);
+  socket.on('authOk', d => { saveToken(d.token); profile = d.profile; myMatches = d.matches || []; guestMode = false; renderProfile(); show('menu'); });
+  socket.on('authErr', m => { if (m) authMsg(m); if (!profile && !guestMode) show('auth'); });
+  socket.on('profileSelf', p => { profile = p; renderProfile(); });
+  socket.on('leaderboard', renderBoard);
+  socket.on('profileView', renderView);
+  setAuthMode('login'); show(authToken ? 'auth' : 'auth');
   el.startBtn.onclick = () => { if (me.debug) socket.emit('startGame'); else socket.emit('setReady'); };
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
@@ -99,7 +113,7 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 function once(fn) { let u = false; return () => { if (u) return; u = true; fn(); setTimeout(() => u = false, 1200); }; }
 
-socket.on('connect', () => { me.id = socket.id; });
+socket.on('connect', () => { me.id = socket.id; if (authToken) socket.emit('authToken', { token: authToken }); });
 socket.on('joined', d => { me.index = d.index; me.color = d.color; me.host = d.host; if (d.debug) me.debug = true; if (typeof closeRooms === 'function') closeRooms(); show('lobby'); });
 socket.on('empireSwitched', d => { me.index = d.index; me.color = d.color; clearSel(); resetFog(); camInit = false; techSig = ''; updateRes(); updateDbg(); });
 socket.on('fogToggled', d => { resetFog(); const b = document.getElementById('dbgFog'); if (b) b.textContent = d.on ? '🌫 Туман: УВІМК' : '🌫 Туман: ВИМК'; });
@@ -115,7 +129,8 @@ socket.on('lobby', d => {
     if (p.id === socket.id) myReady = !!p.ready;
     const li = document.createElement('li');
     const rdy = p.ready ? '<span class="badge rdy">✓ готовий</span>' : (p.connected ? '' : '<span class="badge">офлайн</span>');
-    li.innerHTML = `<span class="dot ${p.color}"></span>${p.name}` + (p.id === d.host ? '<span class="badge">господар</span>' : '') + rdy;
+    li.innerHTML = `<span class="dot ${p.color}"></span>${p.name}` + (p.id === d.host ? '<span class="badge">господар</span>' : '') + rdy + (p.userId ? '<span class="vprof">›</span>' : '');
+    if (p.userId) { li.classList.add('clickable'); li.onclick = () => socket.emit('getProfile', { id: p.userId }); }
     el.playerList.appendChild(li);
   });
   const cfg = d.cfg || { proclaimer: true, trader: true };
@@ -147,38 +162,35 @@ function renderRooms(list) {
     return `<div class="roomitem"><div class="ri-main"><b>${r.host}</b><small>#${r.code} · 👥 ${r.players}/${r.max} · ${status}</small></div>`
       + `<button class="ri-join${dis ? ' dis' : ''}" data-join="${r.code}"${dis ? ' disabled' : ''}>${label}</button></div>`;
   }).join('');
-  el2.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { const n = ensureName(); if (n) socket.emit('joinRoom', { code: b.dataset.join, name: n }); });
+  el2.querySelectorAll('[data-join]').forEach(b => b.onclick = () => socket.emit('joinRoom', { code: b.dataset.join, name: profile ? profile.nickname : 'Гість' }));
 }
+function setAuthMode(m) { authMode = m; const tl = $g('tabLogin'), tr = $g('tabReg'); if (tl) tl.classList.toggle('on', m === 'login'); if (tr) tr.classList.toggle('on', m === 'register'); const nk = $g('authNick'); if (nk) nk.style.display = m === 'register' ? 'block' : 'none'; const s = $g('authSubmit'); if (s) s.textContent = m === 'register' ? 'Створити акаунт' : 'Увійти'; authMsg(''); }
+function authMsg(t) { const e = $g('authMsg'); if (e) e.textContent = t || ''; }
+function submitAuth() { const u = ($g('authUser').value || '').trim(), p = $g('authPass').value || '', nk = ($g('authNick').value || '').trim(); if (authMode === 'register') socket.emit('register', { username: u, password: p, nickname: nk || u }); else socket.emit('login', { username: u, password: p }); }
+function playGuest() { const nk = prompt('Нікнейм для гостя (без збереження статистики):', 'Гість'); if (nk === null) return; guestMode = true; profile = { nickname: (nk || 'Гість').slice(0, 16), guest: true, games: 0, wins: 0, losses: 0, kills: 0, made: 0, built: 0, razed: 0, gathered: 0, bestGuild: 0 }; renderProfile(); show('menu'); }
+function doLogout() { saveToken(null); profile = null; guestMode = false; try { socket.emit('logout'); } catch (e) {} const po = $g('profileOverlay'); if (po) po.classList.add('hidden'); setAuthMode('login'); show('auth'); }
 function renderProfile() {
-  const nm = profile.name || '';
-  const disp = nm || 'Новий гравець';
-  const av0 = nm ? nm[0].toUpperCase() : '🛡️';
-  const pn = document.getElementById('pName'); if (pn) pn.textContent = disp;
-  const av = document.getElementById('pAvatar'); if (av) av.textContent = av0;
+  if (!profile) return; const nm = profile.nickname || 'Гравець';
+  const pn = $g('pName'); if (pn) pn.textContent = nm;
+  const av = $g('pAvatar'); if (av) av.textContent = nm[0] ? nm[0].toUpperCase() : '🛡️';
   const wr = profile.games ? Math.round(profile.wins / profile.games * 100) : 0;
-  const sub = document.getElementById('pSub'); if (sub) sub.textContent = profile.games ? `🎮 ${profile.games} · 🏆 ${profile.wins} · 📈 ${wr}%  ·  профіль ›` : 'Профіль і статистика ›';
-  if (el && el.name) el.name.value = nm;
+  const sub = $g('pSub'); if (sub) sub.textContent = (profile.guest ? '👤 Гість · ' : '') + (profile.games ? `🎮 ${profile.games} · 🏆 ${profile.wins} · 📈 ${wr}%` : 'Новий гравець') + '  ·  профіль ›';
 }
-function openProfile() {
-  const ov = document.getElementById('profileOverlay'); if (!ov) return;
-  const nm = profile.name || 'Новий гравець';
-  document.getElementById('pName2').textContent = nm;
-  const av = document.getElementById('pAvatar2'); if (av) av.textContent = profile.name ? profile.name[0].toUpperCase() : '🛡️';
-  const wr = profile.games ? Math.round(profile.wins / profile.games * 100) : 0;
-  const rows = [
-    ['🎮 Зіграно ігор', profile.games], ['🏆 Перемог', profile.wins], ['💀 Поразок', profile.losses], ['📈 Відсоток перемог', wr + '%'],
-    ['⚔ Усього вбито', profile.kills], ['👥 Створено військ', profile.made], ['🏗 Збудовано споруд', profile.built],
-    ['🏚 Знищено споруд', profile.razed], ['📦 Зібрано ресурсів', profile.gathered], ['🏛 Найвищий рівень гільдії', profile.bestGuild],
-  ];
-  document.getElementById('profStats').innerHTML = rows.map(([l, v]) => `<div class="prow"><span>${l}</span><b>${v}</b></div>`).join('');
-  ov.classList.remove('hidden');
+function statRows(p) { const wr = p.games ? Math.round(p.wins / p.games * 100) : 0; return [['🎮 Ігор', p.games], ['🏆 Перемог', p.wins], ['💀 Поразок', p.losses], ['📈 % перемог', wr + '%'], ['⚔ Вбито', p.kills], ['👥 Створено військ', p.made], ['🏗 Збудовано', p.built], ['🏚 Знищено споруд', p.razed], ['📦 Ресурсів', p.gathered], ['🏛 Макс. гільдія', p.bestGuild]]; }
+function renderStatsInto(el2, p) { if (el2) el2.innerHTML = statRows(p).map(([l, v]) => `<div class="prow"><span>${l}</span><b>${v}</b></div>`).join(''); }
+function renderMatchesInto(el2, matches) { if (!el2) return; if (!matches || !matches.length) { el2.innerHTML = '<div class="roomsempty">Ще немає зіграних матчів.</div>'; return; } el2.innerHTML = matches.map(m => { const win = m.result === 'win'; return `<div class="matchrow ${win ? 'win' : 'loss'}"><span class="dot ${m.color || 'red'}"></span><b>${win ? 'Перемога' : 'Поразка'}</b><small>⏱ ${fmtTime(m.duration)} · 👥 ${m.players} · ⚔ ${m.kills}</small></div>`; }).join(''); }
+function renderBoard(lb) { const el2 = $g('profBoard'); if (!el2) return; if (!lb || !lb.length) { el2.innerHTML = '<div class="roomsempty">Поки порожньо — зіграй перший матч!</div>'; return; } el2.innerHTML = lb.map((u, i) => `<div class="matchrow"><span class="place">#${i + 1}</span><b>${u.nickname}</b><small>🏆 ${u.wins} · 🎮 ${u.games} · ⚔ ${u.kills}</small></div>`).join(''); }
+function renderView(d) { const ov = $g('viewOverlay'); if (!ov) return; const p = d.profile; $g('vName').textContent = p.nickname; $g('vUser').textContent = '@' + p.username; const av = $g('vAvatar'); if (av) av.textContent = p.nickname[0] ? p.nickname[0].toUpperCase() : '🛡️'; renderStatsInto($g('vStats'), p); renderMatchesInto($g('vMatches'), d.matches); ov.classList.remove('hidden'); }
+function profileTab(t) {
+  ['ptStats', 'ptMatches', 'ptBoard'].forEach((id, i) => { const b = $g(id); if (b) b.classList.toggle('on', ['stats', 'matches', 'board'][i] === t); });
+  const s = $g('profStats'), m = $g('profMatches'), b = $g('profBoard');
+  if (s) s.style.display = t === 'stats' ? 'flex' : 'none'; if (m) m.style.display = t === 'matches' ? 'block' : 'none'; if (b) b.style.display = t === 'board' ? 'block' : 'none';
+  if (t === 'stats') renderStatsInto(s, profile);
+  else if (t === 'matches') renderMatchesInto(m, myMatches);
+  else if (t === 'board') { if (b) b.innerHTML = '<div class="roomsempty">Завантаження…</div>'; socket.emit('getLeaderboard'); }
 }
-function resetStats() {
-  if (!confirm('Скинути всю статистику? Ім\'я залишиться.')) return;
-  const nm = profile.name; profile = loadProfile(); profile.name = nm; saveProfile(); renderProfile(); openProfile();
-}
-function editName() { const v = prompt("Твоє ім'я (до 16 символів):", profile.name || ''); if (v !== null) { profile.name = v.trim().slice(0, 16); saveProfile(); renderProfile(); } }
-function ensureName() { if (!profile.name) { editName(); } return profile.name || ''; }
+function openProfile() { if (!profile) return; const ov = $g('profileOverlay'); if (!ov) return; const nm = profile.nickname || 'Гравець'; $g('pName2').textContent = nm + (profile.guest ? ' (гість)' : ''); const av = $g('pAvatar2'); if (av) av.textContent = nm[0] ? nm[0].toUpperCase() : '🛡️'; const lo = $g('logoutBtn'); if (lo) lo.style.display = profile.guest ? 'none' : 'block'; profileTab('stats'); ov.classList.remove('hidden'); }
+function editName() { if (!profile) return; const v = prompt('Новий нікнейм (до 16):', profile.nickname || ''); if (v === null) return; const nn = v.trim().slice(0, 16); if (!nn) return; if (profile.guest) { profile.nickname = nn; renderProfile(); openProfile(); } else socket.emit('setNick', { nickname: nn }); }
 function banner2(t) { let e = document.getElementById('menuToast'); if (!e) { e = document.createElement('div'); e.id = 'menuToast'; document.getElementById('menu').appendChild(e); } e.textContent = t; e.classList.add('show'); clearTimeout(banner2._t); banner2._t = setTimeout(() => e.classList.remove('show'), 2600); }
 function goFullscreen() {
   const d = document.documentElement;
@@ -219,7 +231,7 @@ function showTutorial() {
   }
   render(); ov.classList.remove('hidden');
 }
-function show(name) { el.menu.classList.add('hidden'); el.lobby.classList.add('hidden'); el.game.classList.add('hidden'); el[name].classList.remove('hidden'); }
+function show(name) { el.auth.classList.add('hidden'); el.menu.classList.add('hidden'); el.lobby.classList.add('hidden'); el.game.classList.add('hidden'); el[name].classList.remove('hidden'); }
 function clearSel() { sel.units.clear(); sel.building = null; sel.scout = false; sel.diplo = null; buildMode = null; attackMode = false; buildable = null; modes(); refreshCtx(); closePanels && closePanels(); }
 function resetFog() { if (gridArr) { gridArr.fill(-2); seen.fill(0); mem.fill(-1); } }
 
@@ -752,12 +764,7 @@ function updateDbg() { const b = document.getElementById('dbgSwitch'); if (!b) r
 function showEnd(d) {
   el.overlay.classList.remove('hidden');
   musicStopAll();
-  if (gameKind === 'multi' && me.index >= 0) {
-    profile.games++; if (d.winner === me.index) profile.wins++; else profile.losses++;
-    const mine = (d.stats || []).find(x => x.index === me.index);
-    if (mine) { profile.kills += mine.kills || 0; profile.made += mine.made || 0; profile.built += mine.built || 0; profile.razed += mine.razed || 0; profile.gathered += mine.gathered || 0; profile.bestGuild = Math.max(profile.bestGuild, mine.guildLevel || 0); }
-    saveProfile(); renderProfile();
-  }   // музика замовкає на екрані кінця бою
+  if (gameKind === 'multi' && profile && !profile.guest && authToken) socket.emit('authToken', { token: authToken });   // сервер зберіг статистику — оновлюємо профіль/історію
   const rows = [...d.stats].sort((a, b) => (b.territory + b.kills * 6 + b.razed * 20 + b.built * 3 + (b.alive ? 300 : 0)) - (a.territory + a.kills * 6 + a.razed * 20 + a.built * 3 + (a.alive ? 300 : 0)));
   const winTxt = d.winner === -1 ? 'Нічия' : `Перемогла <span style="color:${COL[IDX[d.winner]]}">${CNAME[IDX[d.winner]]}</span> імперія`;
   let html = `<h2 class="endtitle">🏆 ${winTxt}</h2><div class="statwrap">`; let place = 0;

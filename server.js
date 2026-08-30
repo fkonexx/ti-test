@@ -5,6 +5,8 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
+const bcrypt = require('bcryptjs');
+const db = require('./db');
 
 const app = express();
 app.use(express.static(__dirname));
@@ -481,9 +483,22 @@ function buildStats(s) {
 }
 function scoreOf(x) { return x.territory + x.kills * 6 + x.razed * 20 + x.built * 3 + (x.alive ? 300 : 0); }
 function chooseWinner(s) { const st = buildStats(s); let best = -1, bs = -1e9; for (const x of st) { const sc = scoreOf(x); if (sc > bs) { bs = sc; best = x.index; } } return best; }
-function finishGame(room, winner) { const s = room.state; if (!s) return; s.winner = winner; if (room.loop) { clearInterval(room.loop); room.loop = null; } broadcast(room); io.to(room.code).emit('gameOver', { winner, stats: buildStats(s) }); }
+function finishGame(room, winner) {
+  const s = room.state; if (!s) return; s.winner = winner; if (room.loop) { clearInterval(room.loop); room.loop = null; }
+  broadcast(room); io.to(room.code).emit('gameOver', { winner, stats: buildStats(s) });
+  if (!room.debug && !room.tutorial) saveMatchStats(room, winner);
+}
+function saveMatchStats(room, winner) {
+  const s = room.state; const st = buildStats(s); const dur = Math.floor(s.t); const nPlayers = room.players.filter(p => p.userId).length;
+  for (const p of room.players) {
+    if (!p.userId) continue;
+    const es = st.find(x => x.index === p.index) || {}; const won = p.index === winner;
+    db.api().addStats(p.userId, { games: 1, wins: won ? 1 : 0, losses: won ? 0 : 1, kills: es.kills || 0, made: es.made || 0, built: es.built || 0, razed: es.razed || 0, gathered: Math.floor(es.gathered || 0), best_guild: es.guildLevel || 0 }).catch(() => {});
+    db.api().addMatch(p.userId, { result: won ? 'win' : 'loss', duration: dur, players: nPlayers, kills: es.kills || 0, color: p.color }).catch(() => {});
+  }
+}
 
-function broadcastLobby(room) { io.to(room.code).emit('lobby', { code: room.code, host: room.host, started: room.started, cfg: room.cfg || { proclaimer: true, trader: true }, players: room.players.map(p => ({ index: p.index, color: p.color, name: p.name, connected: p.connected, id: p.id, ready: !!p.ready })) }); }
+function broadcastLobby(room) { io.to(room.code).emit('lobby', { code: room.code, host: room.host, started: room.started, cfg: room.cfg || { proclaimer: true, trader: true }, players: room.players.map(p => ({ index: p.index, color: p.color, name: p.name, connected: p.connected, id: p.id, userId: p.userId || null, ready: !!p.ready })) }); }
 function maybeStart(room) {
   if (room.started || room.debug) return;
   if (room.players.length < 2) return;
@@ -562,12 +577,41 @@ function publicRoomsInfo() {
 io.on('connection', (socket) => {
   onlineCount++; io.emit('online', onlineCount); socket.emit('online', onlineCount);
   socket.on('listRooms', () => socket.emit('roomList', publicRoomsInfo()));
+
+  const validUser = u => typeof u === 'string' && /^[A-Za-z0-9_]{3,16}$/.test(u);
+  async function doAuth(u) { socket.data.userId = u.id; socket.data.nick = u.nickname; const matches = await db.api().getMatches(u.id, 15).catch(() => []); socket.emit('authOk', { token: db.signToken(u.id), profile: db.publicProfile(u), matches }); }
+  socket.on('register', async ({ username, password, nickname } = {}) => {
+    try {
+      username = (username || '').trim(); nickname = (nickname || '').trim().slice(0, 16) || username;
+      if (!validUser(username)) return socket.emit('authErr', 'Логін: 3–16 символів (літери, цифри, _)');
+      if (typeof password !== 'string' || password.length < 4) return socket.emit('authErr', 'Пароль: щонайменше 4 символи');
+      const hash = bcrypt.hashSync(password, 8);
+      const u = await db.api().createUser(username, hash, nickname);
+      doAuth(u);
+    } catch (e) { socket.emit('authErr', e && e.dup ? 'Такий логін уже зайнятий' : 'Помилка реєстрації'); }
+  });
+  socket.on('login', async ({ username, password } = {}) => {
+    try {
+      const u = await db.api().getByUsername((username || '').trim());
+      if (!u || !bcrypt.compareSync(password || '', u.password_hash)) return socket.emit('authErr', 'Невірний логін або пароль');
+      doAuth(u);
+    } catch (e) { socket.emit('authErr', 'Помилка входу'); }
+  });
+  socket.on('authToken', async ({ token } = {}) => {
+    const id = db.verifyToken(token); if (!id) return socket.emit('authErr', '');
+    const u = await db.api().getById(id).catch(() => null); if (!u) return socket.emit('authErr', '');
+    doAuth(u);
+  });
+  socket.on('logout', () => { socket.data.userId = null; socket.data.nick = null; });
+  socket.on('setNick', async ({ nickname } = {}) => { if (!socket.data.userId) return; const nn = (nickname || '').trim().slice(0, 16); if (!nn) return; await db.api().setNickname(socket.data.userId, nn).catch(() => {}); socket.data.nick = nn; const u = await db.api().getById(socket.data.userId).catch(() => null); if (u) socket.emit('profileSelf', db.publicProfile(u)); });
+  socket.on('getProfile', async ({ id } = {}) => { const u = await db.api().getById(+id).catch(() => null); if (!u) return; const matches = await db.api().getMatches(u.id, 10).catch(() => []); socket.emit('profileView', { profile: db.publicProfile(u), matches }); });
+  socket.on('getLeaderboard', async () => { const lb = await db.api().leaderboard(20).catch(() => []); socket.emit('leaderboard', lb); });
   socket.on('enterTest', () => startDebug(socket));
   socket.on('startTutorial', ({ name } = {}) => startTutorial(socket, name));
   socket.on('createRoom', ({ name, isPublic } = {}) => {
     leaveCurrentRoom(socket);
     const code = newRoomCode(); const room = { code, host: socket.id, started: false, players: [], state: null, loop: null, cfg: { proclaimer: true, trader: true }, public: !!isPublic }; rooms[code] = room;
-    room.players.push({ id: socket.id, name: (name || 'Гравець 1').slice(0, 16), index: 0, color: COLORS[0], connected: true, ready: false });
+    room.players.push({ id: socket.id, userId: socket.data.userId || null, name: (socket.data.nick || name || 'Гравець 1').slice(0, 16), index: 0, color: COLORS[0], connected: true, ready: false });
     socket.data.room = code; socket.data.index = 0; socket.data.debug = false; socket.join(code);
     socket.emit('joined', { code, index: 0, color: COLORS[0], host: true }); broadcastLobby(room);
   });
@@ -579,7 +623,7 @@ io.on('connection', (socket) => {
     if (room.started) return socket.emit('errorMsg', 'Гра вже почалась');
     if (room.players.length >= 4) return socket.emit('errorMsg', 'Кімната повна (макс. 4)');
     const index = room.players.length;
-    room.players.push({ id: socket.id, name: (name || ('Гравець ' + (index + 1))).slice(0, 16), index, color: COLORS[index], connected: true, ready: false });
+    room.players.push({ id: socket.id, userId: socket.data.userId || null, name: (socket.data.nick || name || ('Гравець ' + (index + 1))).slice(0, 16), index, color: COLORS[index], connected: true, ready: false });
     socket.data.room = code; socket.data.index = index; socket.data.debug = false; socket.join(code);
     socket.emit('joined', { code, index, color: COLORS[index], host: room.host === socket.id }); broadcastLobby(room);
   });
@@ -778,4 +822,5 @@ function tradeResult(from, to, amt) {
 }
 
 const PORT = process.env.PORT || 3000;
+db.init().catch(e => console.error('db init', e));
 server.listen(PORT, () => console.log('Чотири Імперії Balance v2 — сервер на порту ' + PORT));
