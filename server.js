@@ -220,6 +220,7 @@ function applyDamage(s, atk, tgt, dmg, splash, splashPct) {
   if (splash > 0) { const sd = dmg * (splashPct || 0.6); for (const u of s.units) { if (u.owner === atk || u.hp <= 0 || u.scout || u.diplo || u === tgt.ref) continue; if (dist(px, py, u.x, u.y) <= splash) { const w = u.hp > 0; u.hp -= sd; u.lastHit = s.t; if (w && u.hp <= 0) credit(s, atk, false); } } }
 }
 
+function newKey() { return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6); }
 function recomputePause(room) {
   if (!room.pauseReqs) room.pauseReqs = new Set();
   const ids = [...new Set(room.players.filter(p => p.connected && !String(p.id).startsWith('BOT')).map(p => p.id))];
@@ -229,7 +230,8 @@ function recomputePause(room) {
 }
 function step(room) {
   const s = room.state; if (!s || s.winner !== null) return;
-  if (room.paused) { broadcast(room); return; }
+  if (room.leavePauseUntil && Date.now() >= room.leavePauseUntil) room.leavePauseUntil = null;
+  if (room.paused || (room.leavePauseUntil && Date.now() < room.leavePauseUntil)) { broadcast(room); return; }
   s.t += DT; s.shots = [];
   if (s.peace > 0) s.peace = Math.max(0, s.peace - DT);
   const peace = s.peace > 0;
@@ -468,7 +470,7 @@ function sendState(sock, room, o, full, key) {
   const ent = serializeEntities(s, o, full, vis); const g = gridFor(s, o, full, vis);
   const last = room.lastGrid[key];
   if (!last) ent.gridFull = g; else { const diff = []; for (let i = 0; i < g.length; i++) if (g[i] !== last[i]) diff.push(i, g[i]); ent.gridDiff = diff; }
-  room.lastGrid[key] = g; ent.paused = !!room.paused; ent.pauseVotes = room.pauseVotes || 0; ent.pauseTotal = room.pauseTotal || 0; ent.iPaused = !!(room.pauseReqs && room.pauseReqs.has(sock.id)); sock.emit('state', ent);
+  room.lastGrid[key] = g; const lp = room.leavePauseUntil ? Math.max(0, Math.ceil((room.leavePauseUntil - Date.now()) / 1000)) : 0; ent.leavePause = lp; ent.paused = !!(room.paused || lp > 0); ent.pauseVotes = room.pauseVotes || 0; ent.pauseTotal = room.pauseTotal || 0; ent.iPaused = !!(room.pauseReqs && room.pauseReqs.has(sock.id)); sock.emit('state', ent);
 }
 function broadcast(room) {
   const s = room.state; if (!s) return;
@@ -518,7 +520,8 @@ function leaveCurrentRoom(socket) {
     if (room.players.length === 0) { if (room.loop) clearInterval(room.loop); delete rooms[code]; return; }
     if (room.host === socket.id) room.host = room.players[0].id; broadcastLobby(room); maybeStart(room);
   } else {
-    const p = room.players.find(pp => pp.id === socket.id); if (p) p.connected = false;
+    const p = room.players.find(pp => pp.id === socket.id); if (p) { p.connected = false; p.left = true; }
+    if (!room.tutorial && !room.leavePauseUsed && room.state && room.state.winner === null && room.players.some(pp => pp.connected)) { room.leavePauseUsed = true; room.leavePauseUntil = Date.now() + 5 * 60 * 1000; }
     if (room.players.every(pp => !pp.connected)) { if (room.loop) clearInterval(room.loop); delete rooms[code]; } else broadcastLobby(room);
   }
 }
@@ -611,9 +614,9 @@ io.on('connection', (socket) => {
   socket.on('createRoom', ({ name, isPublic } = {}) => {
     leaveCurrentRoom(socket);
     const code = newRoomCode(); const room = { code, host: socket.id, started: false, players: [], state: null, loop: null, cfg: { proclaimer: true, trader: true }, public: !!isPublic }; rooms[code] = room;
-    room.players.push({ id: socket.id, userId: socket.data.userId || null, name: (socket.data.nick || name || 'Гравець 1').slice(0, 16), index: 0, color: COLORS[0], connected: true, ready: false });
+    room.players.push({ id: socket.id, userId: socket.data.userId || null, rejoinKey: newKey(), name: (socket.data.nick || name || 'Гравець 1').slice(0, 16), index: 0, color: COLORS[0], connected: true, ready: false });
     socket.data.room = code; socket.data.index = 0; socket.data.debug = false; socket.join(code);
-    socket.emit('joined', { code, index: 0, color: COLORS[0], host: true }); broadcastLobby(room);
+    socket.emit('joined', { code, index: 0, color: COLORS[0], host: true, rejoinKey: room.players[0].rejoinKey }); broadcastLobby(room);
   });
   socket.on('joinRoom', ({ code, name } = {}) => {
     code = (code || '').toUpperCase().trim(); leaveCurrentRoom(socket);
@@ -623,9 +626,9 @@ io.on('connection', (socket) => {
     if (room.started) return socket.emit('errorMsg', 'Гра вже почалась');
     if (room.players.length >= 4) return socket.emit('errorMsg', 'Кімната повна (макс. 4)');
     const index = room.players.length;
-    room.players.push({ id: socket.id, userId: socket.data.userId || null, name: (socket.data.nick || name || ('Гравець ' + (index + 1))).slice(0, 16), index, color: COLORS[index], connected: true, ready: false });
+    const rk = newKey(); room.players.push({ id: socket.id, userId: socket.data.userId || null, rejoinKey: rk, name: (socket.data.nick || name || ('Гравець ' + (index + 1))).slice(0, 16), index, color: COLORS[index], connected: true, ready: false });
     socket.data.room = code; socket.data.index = index; socket.data.debug = false; socket.join(code);
-    socket.emit('joined', { code, index, color: COLORS[index], host: room.host === socket.id }); broadcastLobby(room);
+    socket.emit('joined', { code, index, color: COLORS[index], host: room.host === socket.id, rejoinKey: rk }); broadcastLobby(room);
   });
   socket.on('setReady', ({ ready } = {}) => {
     const room = rooms[socket.data.room]; if (!room || room.started) return;
@@ -655,7 +658,7 @@ io.on('connection', (socket) => {
 
   socket.on('command', (cmd) => {
     const room = rooms[socket.data.room]; if (!room || !room.started || !room.state || room.state.winner !== null) return;
-    if (room.paused) return;
+    if (room.paused || (room.leavePauseUntil && Date.now() < room.leavePauseUntil)) return;
     const s = room.state, o = socket.data.index, me = playerOf(s, o); if (!me || !me.alive) return;
     const peace = s.peace > 0;
 
@@ -791,6 +794,28 @@ io.on('connection', (socket) => {
 
   socket.on('pingCheck', (ts) => socket.emit('pongCheck', ts));
   socket.on('leaveRoom', () => leaveCurrentRoom(socket));
+  socket.on('rejoinRoom', ({ code, rejoinKey } = {}) => {
+    const room = rooms[(code || '').toUpperCase()];
+    if (!room || !room.started || !room.state || room.state.winner !== null) return socket.emit('errorMsg', 'Бій уже завершився');
+    const p = room.players.find(pp => pp.rejoinKey === rejoinKey);
+    if (!p) return socket.emit('errorMsg', 'Не вдалося повернутися до бою');
+    leaveCurrentRoom(socket);
+    p.id = socket.id; p.connected = true; p.left = false;
+    socket.data.room = room.code; socket.data.index = p.index; socket.data.debug = false; socket.join(room.code);
+    if (room.pauseReqs) { room.pauseReqs.delete(socket.id); recomputePause(room); }
+    room.leavePauseUntil = null;
+    socket.emit('joined', { code: room.code, index: p.index, color: p.color, host: room.host === socket.id, rejoinKey: p.rejoinKey });
+    socket.emit('gameStarted', { W, H, biomes: room.state.biomes, spawns: room.state.spawns });
+    broadcastLobby(room);
+  });
+  socket.on('chat', ({ text } = {}) => {
+    const room = rooms[socket.data.room]; if (!room || !room.started) return;
+    text = (typeof text === 'string' ? text : '').trim().slice(0, 200); if (!text) return;
+    const rp = room.players.find(pp => pp.index === socket.data.index);
+    const name = (socket.data.nick || (rp && rp.name) || 'Гравець').slice(0, 16);
+    const color = rp ? rp.color : 'red';
+    io.to(room.code).emit('chatMsg', { name, color, text, at: Date.now() });
+  });
   socket.on('pauseToggle', () => { const room = rooms[socket.data.room]; if (!room || !room.started) return; if (!room.pauseReqs) room.pauseReqs = new Set(); if (room.pauseReqs.has(socket.id)) room.pauseReqs.delete(socket.id); else room.pauseReqs.add(socket.id); recomputePause(room); });
   socket.on('disconnect', () => { leaveCurrentRoom(socket); onlineCount = Math.max(0, onlineCount - 1); io.emit('online', onlineCount); });
 });

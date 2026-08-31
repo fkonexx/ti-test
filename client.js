@@ -4,10 +4,16 @@
 const socket = io();
 const me = { index: -1, color: null, host: false, id: null, debug: false };
 let gameKind = 'multi', roomPublic = true, roomsTimer = null;
+let activeGame = null, pendingRejoin = null, chatMsgs = [];
+try { activeGame = JSON.parse(localStorage.getItem('fe_active') || 'null'); } catch (e) {}
+function persistActive() { try { activeGame ? localStorage.setItem('fe_active', JSON.stringify(activeGame)) : localStorage.removeItem('fe_active'); } catch (e) {} updateResumeBtn(); }
+function updateResumeBtn() { const b = document.getElementById('resumeGameBtn'); if (b) b.style.display = activeGame ? 'block' : 'none'; }
 const TKEY = 'fe_token';
 let authToken = null; try { authToken = localStorage.getItem(TKEY) || null; } catch (e) {}
 let profile = null, myMatches = [], guestMode = false, authMode = 'login';
 function saveToken(t) { authToken = t; try { t ? localStorage.setItem(TKEY, t) : localStorage.removeItem(TKEY); } catch (e) {} }
+function cacheProfile(p) { try { p ? localStorage.setItem('fe_pcache', JSON.stringify(p)) : localStorage.removeItem('fe_pcache'); } catch (e) {} }
+try { if (authToken) { const pc = JSON.parse(localStorage.getItem('fe_pcache') || 'null'); if (pc) profile = pc; } } catch (e) {}
 function $g(id) { return document.getElementById(id); }
 let W = 130, H = 130, biomes = null, st = null, spawns = null;
 let CELL = 26, camX = 0, camY = 0, camInit = false;
@@ -76,6 +82,9 @@ window.addEventListener('DOMContentLoaded', () => {
   { const pc = $('profClose'); if (pc) pc.onclick = () => $g('profileOverlay').classList.add('hidden'); }
   { const lo = $('logoutBtn'); if (lo) lo.onclick = () => doLogout(); }
   { const mf = $('menuFsBtn'); if (mf) mf.onclick = () => goFullscreen(); }
+  { const rg = $('resumeGameBtn'); if (rg) rg.onclick = () => { if (activeGame) socket.emit('rejoinRoom', activeGame); }; }
+  updateResumeBtn();
+  socket.on('chatMsg', m => { chatMsgs.push(m); if (chatMsgs.length > 80) chatMsgs.shift(); renderChat(); });
   { const tl = $('tabLogin'); if (tl) tl.onclick = () => setAuthMode('login'); }
   { const tr = $('tabReg'); if (tr) tr.onclick = () => setAuthMode('register'); }
   { const as = $('authSubmit'); if (as) as.onclick = () => submitAuth(); }
@@ -85,12 +94,12 @@ window.addEventListener('DOMContentLoaded', () => {
   { const vc = $('viewClose'); if (vc) vc.onclick = () => $g('viewOverlay').classList.add('hidden'); }
   socket.on('online', n => { document.querySelectorAll('.js-online').forEach(b => b.textContent = '🟢 ' + n + ' онлайн'); });
   socket.on('roomList', renderRooms);
-  socket.on('authOk', d => { saveToken(d.token); profile = d.profile; myMatches = d.matches || []; guestMode = false; renderProfile(); show('menu'); });
-  socket.on('authErr', m => { if (m) authMsg(m); if (!profile && !guestMode) show('auth'); });
-  socket.on('profileSelf', p => { profile = p; renderProfile(); });
+  socket.on('authOk', d => { saveToken(d.token); profile = d.profile; cacheProfile(d.profile); myMatches = d.matches || []; guestMode = false; renderProfile(); show('menu'); });
+  socket.on('authErr', m => { if (m) authMsg(m); if (!guestMode) { saveToken(null); cacheProfile(null); profile = null; show('auth'); } });
+  socket.on('profileSelf', p => { profile = p; cacheProfile(p); renderProfile(); });
   socket.on('leaderboard', renderBoard);
   socket.on('profileView', renderView);
-  setAuthMode('login'); show(authToken ? 'auth' : 'auth');
+  setAuthMode('login'); if (authToken && profile) { renderProfile(); show('menu'); } else show('auth');
   el.startBtn.onclick = () => { if (me.debug) socket.emit('startGame'); else socket.emit('setReady'); };
   $('fsBtn').onclick = toggleFullscreen;
   { const hb = $('homeBtn'); if (hb) hb.onclick = () => { if (st) { centerOnGuild(); flash(hb); } }; }
@@ -108,13 +117,13 @@ window.addEventListener('DOMContentLoaded', () => {
   if (zo) zo.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
   { const ab = $('audioBtn'); if (ab) ab.onclick = () => { muted = !muted; ab.textContent = muted ? '🔇' : '🔊'; ab.classList.toggle('off', muted); if (muted) musicStopAll(); else { sfxInit(); updateMusic(); } }; }
   { const pb = $('pauseBtn'); if (pb) pb.onclick = () => { sfxInit(); socket.emit('pauseToggle'); }; }
-  { const le = $('lobbyExitBtn'); if (le) le.onclick = () => { try { socket.emit('leaveRoom'); } catch (e) {} location.reload(); }; }
+  { const le = $('lobbyExitBtn'); if (le) le.onclick = () => returnToMenu(); }
   setupCanvas();
 });
 function once(fn) { let u = false; return () => { if (u) return; u = true; fn(); setTimeout(() => u = false, 1200); }; }
 
 socket.on('connect', () => { me.id = socket.id; if (authToken) socket.emit('authToken', { token: authToken }); });
-socket.on('joined', d => { me.index = d.index; me.color = d.color; me.host = d.host; if (d.debug) me.debug = true; if (typeof closeRooms === 'function') closeRooms(); show('lobby'); });
+socket.on('joined', d => { me.index = d.index; me.color = d.color; me.host = d.host; if (d.debug) me.debug = true; pendingRejoin = d.rejoinKey ? { code: d.code, rejoinKey: d.rejoinKey } : null; if (typeof closeRooms === 'function') closeRooms(); show('lobby'); });
 socket.on('empireSwitched', d => { me.index = d.index; me.color = d.color; clearSel(); resetFog(); camInit = false; techSig = ''; updateRes(); updateDbg(); });
 socket.on('fogToggled', d => { resetFog(); const b = document.getElementById('dbgFog'); if (b) b.textContent = d.on ? '🌫 Туман: УВІМК' : '🌫 Туман: ВИМК'; });
 let ping = 0, pingTimer = null;
@@ -145,10 +154,10 @@ socket.on('lobby', d => {
   if (me.debug) { el.startBtn.textContent = '▶ Почати гру (тест)'; el.startBtn.classList.remove('ghost'); el.lobbyHint.textContent = 'Тестовий режим — виставте дипломатичних юнітів і почніть'; }
   else { el.startBtn.textContent = myReady ? 'Скасувати готовність' : 'Готово'; el.startBtn.classList.toggle('ghost', myReady); el.lobbyHint.textContent = `Готові: ${readyN}/${d.players.length}` + (enough ? ' — гра почнеться, коли всі натиснуть «Готово»' : ' — потрібно мінімум 2 гравці'); }
 });
-socket.on('errorMsg', m => alert(m));
-socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); gameKind = d.tutorial ? 'tutorial' : (me.debug ? 'test' : 'multi'); show('game'); resize(); ensurePeaceEl(); ensurePanels(); ensureHudExtras(); startPing(); if (me.debug) createDbgBar(); if (d.tutorial) { showTutorial(); banner('🎓 Тренування — знищ ворожу гільдію'); } else banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); requestAnimationFrame(draw); });
+socket.on('errorMsg', m => { if (/завершив|повернут/i.test(m || '')) { activeGame = null; persistActive(); } alert(m); });
+socket.on('gameStarted', d => { W = d.W; H = d.H; biomes = d.biomes; spawns = d.spawns; gridArr = new Array(W * H).fill(-2); seen = new Uint8Array(W * H); mem = new Int8Array(W * H).fill(-1); gameKind = d.tutorial ? 'tutorial' : (me.debug ? 'test' : 'multi'); if (gameKind === 'multi' && pendingRejoin) { activeGame = pendingRejoin; persistActive(); } show('game'); resize(); ensurePeaceEl(); ensurePanels(); ensureHudExtras(); startPing(); if (me.debug) createDbgBar(); if (d.tutorial) { showTutorial(); banner('🎓 Тренування — знищ ворожу гільдію'); } else banner('Карта 130×130 · перші 2 хв — мир (розвиток і розвідка)'); if (!window._drawStarted) { window._drawStarted = true; requestAnimationFrame(draw); } });
 socket.on('state', s => onState(s));
-socket.on('gameOver', d => showEnd(d));
+socket.on('gameOver', d => { activeGame = null; persistActive(); showEnd(d); });
 
 function openRooms() { const ov = document.getElementById('roomsOverlay'); if (!ov) return; ov.classList.remove('hidden'); const l = document.getElementById('roomsList'); if (l) l.innerHTML = '<div class="roomsempty">Оновлення…</div>'; socket.emit('listRooms'); if (roomsTimer) clearInterval(roomsTimer); roomsTimer = setInterval(() => socket.emit('listRooms'), 3000); }
 function closeRooms() { const ov = document.getElementById('roomsOverlay'); if (ov) ov.classList.add('hidden'); if (roomsTimer) { clearInterval(roomsTimer); roomsTimer = null; } }
@@ -168,7 +177,7 @@ function setAuthMode(m) { authMode = m; const tl = $g('tabLogin'), tr = $g('tabR
 function authMsg(t) { const e = $g('authMsg'); if (e) e.textContent = t || ''; }
 function submitAuth() { const u = ($g('authUser').value || '').trim(), p = $g('authPass').value || '', nk = ($g('authNick').value || '').trim(); if (authMode === 'register') socket.emit('register', { username: u, password: p, nickname: nk || u }); else socket.emit('login', { username: u, password: p }); }
 function playGuest() { const nk = prompt('Нікнейм для гостя (без збереження статистики):', 'Гість'); if (nk === null) return; guestMode = true; profile = { nickname: (nk || 'Гість').slice(0, 16), guest: true, games: 0, wins: 0, losses: 0, kills: 0, made: 0, built: 0, razed: 0, gathered: 0, bestGuild: 0 }; renderProfile(); show('menu'); }
-function doLogout() { saveToken(null); profile = null; guestMode = false; try { socket.emit('logout'); } catch (e) {} const po = $g('profileOverlay'); if (po) po.classList.add('hidden'); setAuthMode('login'); show('auth'); }
+function doLogout() { saveToken(null); cacheProfile(null); profile = null; guestMode = false; try { socket.emit('logout'); } catch (e) {} const po = $g('profileOverlay'); if (po) po.classList.add('hidden'); setAuthMode('login'); show('auth'); }
 function renderProfile() {
   if (!profile) return; const nm = profile.nickname || 'Гравець';
   const pn = $g('pName'); if (pn) pn.textContent = nm;
@@ -232,20 +241,64 @@ function showTutorial() {
   render(); ov.classList.remove('hidden');
 }
 function show(name) { el.auth.classList.add('hidden'); el.menu.classList.add('hidden'); el.lobby.classList.add('hidden'); el.game.classList.add('hidden'); el[name].classList.remove('hidden'); }
+function returnToMenu() {
+  try { socket.emit('leaveRoom'); } catch (e) {}
+  st = null; me.index = -1; me.debug = false; gameKind = 'multi'; camInit = false;
+  for (const k in renderU) delete renderU[k]; effects = []; projectiles = [];
+  sel.units.clear(); sel.building = null; sel.scout = false; sel.diplo = null; attackMode = false; buildMode = null; buildable = null;
+  for (const n of [1, 2, 3, 4]) groups[n].clear();
+  try { musicStopAll(); } catch (e) {}
+  closePanels && closePanels();
+  const ov = $g('overlay'); if (ov) ov.classList.add('hidden');
+  ['pauseOverlay', 'pauseMini', 'tutOverlay', 'killfeed', 'truceHud'].forEach(id => { const e = $g(id); if (e) e.style.display = 'none'; });
+  const db = $g('dbgbar'); if (db) db.remove();
+  updateResumeBtn(); show('menu');
+}
 function clearSel() { sel.units.clear(); sel.building = null; sel.scout = false; sel.diplo = null; buildMode = null; attackMode = false; buildable = null; modes(); refreshCtx(); closePanels && closePanels(); }
 function resetFog() { if (gridArr) { gridArr.fill(-2); seen.fill(0); mem.fill(-1); } }
 
 function ensurePeaceEl() { if (peaceEl) return; peaceEl = document.createElement('div'); peaceEl.id = 'peace'; document.getElementById('game').appendChild(peaceEl); }
 function ensureHudExtras() { const G = document.getElementById('game'); if (!truceEl) { truceEl = document.createElement('div'); truceEl.id = 'truceHud'; truceEl.style.display = 'none'; G.appendChild(truceEl); } if (!killfeedEl) { killfeedEl = document.createElement('div'); killfeedEl.id = 'killfeed'; G.appendChild(killfeedEl); } }
+function chatEsc(s) { return String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+function ensurePauseMenu() {
+  let ov = document.getElementById('pauseOverlay');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'pauseOverlay';
+    ov.innerHTML = `<div class="pausecard"><div class="pausetitle" id="pauseTitle">⏸ ПАУЗА</div>`
+      + `<div id="chatLog" class="chatlog"></div>`
+      + `<div class="chatinput"><input id="chatInput" maxlength="200" placeholder="Написати повідомлення…" /><button id="chatSend">➤</button></div>`
+      + `<button id="resumeBtn" class="btn big">▶ Зняти свою паузу</button></div>`;
+    document.getElementById('game').appendChild(ov);
+    ov.querySelector('#chatSend').onclick = sendChat;
+    ov.querySelector('#chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+    ov.querySelector('#resumeBtn').onclick = () => { if (st && st.iPaused) socket.emit('pauseToggle'); };
+  }
+  return ov;
+}
+function sendChat() { const i = document.getElementById('chatInput'); if (!i) return; const t = i.value.trim(); if (!t) return; socket.emit('chat', { text: t }); i.value = ''; }
+function renderChat() {
+  const log = document.getElementById('chatLog'); if (!log) return;
+  if (!chatMsgs.length) { log.innerHTML = '<div class="cmsg mut">Повідомлень ще немає…</div>'; return; }
+  log.innerHTML = chatMsgs.slice(-50).map(m => `<div class="cmsg"><b style="color:${COL[m.color] || '#ccc'}">${chatEsc(m.name)}</b> ${chatEsc(m.text)}</div>`).join('');
+  log.scrollTop = log.scrollHeight;
+}
 function updatePause() {
   const pb = document.getElementById('pauseBtn'); if (pb && st) pb.classList.toggle('on', !!st.iPaused);
-  const G = document.getElementById('game');
-  let ov = document.getElementById('pauseOverlay');
-  if (st && st.paused) { if (!ov) { ov = document.createElement('div'); ov.id = 'pauseOverlay'; G.appendChild(ov); } ov.innerHTML = '⏸ ПАУЗА<small>натисніть ⏸ вгорі, щоб продовжити</small>'; ov.style.display = 'flex'; }
-  else if (ov) ov.style.display = 'none';
+  const showPause = st && (st.paused || st.iPaused);
+  if (showPause) {
+    const ov = ensurePauseMenu(); ov.style.display = 'flex';
+    const t = document.getElementById('pauseTitle');
+    if (t) {
+      if (st.leavePause > 0) t.innerHTML = '⏸ Гравець вийшов · пауза ' + fmtTime(st.leavePause) + '<small>чекаємо на повернення до бою…</small>';
+      else if (st.paused) t.innerHTML = '⏸ ПАУЗА<small>гру зупинено — можна поспілкуватись</small>';
+      else t.innerHTML = '⏸ Ви за паузу (' + st.pauseVotes + '/' + st.pauseTotal + ')<small>гра зупиниться, коли всі згодні</small>';
+    }
+    const rb = document.getElementById('resumeBtn'); if (rb) rb.style.display = st.iPaused ? 'block' : 'none';
+    renderChat();
+  } else { const ov = document.getElementById('pauseOverlay'); if (ov) ov.style.display = 'none'; }
   let mi = document.getElementById('pauseMini');
-  const partial = st && !st.paused && st.pauseVotes > 0 && st.pauseTotal > 1;
-  if (partial) { if (!mi) { mi = document.createElement('div'); mi.id = 'pauseMini'; G.appendChild(mi); } mi.textContent = '⏸ ' + st.pauseVotes + '/' + st.pauseTotal + ' за паузу'; mi.style.display = 'block'; }
+  const partial = st && !st.paused && !st.iPaused && st.pauseVotes > 0 && st.pauseTotal > 1;
+  if (partial) { if (!mi) { mi = document.createElement('div'); mi.id = 'pauseMini'; document.getElementById('game').appendChild(mi); } mi.textContent = '⏸ ' + st.pauseVotes + '/' + st.pauseTotal + ' за паузу'; mi.style.display = 'block'; }
   else if (mi) mi.style.display = 'none';
 }
 function updateTruce() { if (!truceEl || !st || !st.me) return; const t = st.me.truce; if (t) { const m = Math.floor(t.left / 60), s = t.left % 60; truceEl.innerHTML = `🤝 Мир з <b style="color:${COL[IDX[t.who]]}">${CNAME[IDX[t.who]]}</b> ${m}:${String(s).padStart(2, '0')}`; truceEl.style.display = 'block'; } else truceEl.style.display = 'none'; }
@@ -771,7 +824,7 @@ function showEnd(d) {
   for (const p of rows) { place++; html += `<div class="statcard" style="border-color:${COL[IDX[p.index]]}"><div class="sc-h"><span class="place">#${place}</span><span class="dot ${p.color}"></span><b>${CNAME[p.color]}</b>${p.index === d.winner ? ' 👑' : ''}${p.alive ? '' : ' <small class="mut">вибула</small>'}</div><div class="sc-g"><span>🗺 територія<b>${p.territory}</b></span><span>⚔ вбито<b>${p.kills}</b></span><span>💀 втрати<b>${p.lost}</b></span><span>🏚 знищено споруд<b>${p.razed}</b></span><span>🏗 збудовано<b>${p.built}</b></span><span>👥 створено військ<b>${p.made}</b></span><span>📦 ресурсів<b>${p.gathered}</b></span><span>🏛 гільдія<b>ур.${p.guildLevel}</b></span></div></div>`; }
   html += `</div><button id="againBtn2" class="btn big">Нова гра</button>`;
   el.overlay.querySelector('.panel').innerHTML = html; el.overlay.querySelector('.panel').classList.add('endpanel');
-  document.getElementById('againBtn2').onclick = () => location.reload();
+  document.getElementById('againBtn2').onclick = () => returnToMenu();
 }
 function pseudoFS() {
   document.body.classList.toggle('pseudo-fs');
